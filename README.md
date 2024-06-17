@@ -1,6 +1,6 @@
 # ARC Draw more samples
 
-(TODO: substack link)
+See [my blog post on substack for details](https://redwoodresearch.substack.com/p/getting-50-sota-on-arc-agi-with-gpt).
 
 The main script is arc_solve/solve.py. This requires a redis server running at port "6381" (for caching), several hours of time, a considerable amount of memory, an openai key, and a bunch of money
 Required dependencies are tqdm, numpy, scipy, skimage, attrs, cattrs, nest_asyncio, redis-py, matplotlib, anthropic (not actually needed), and openai==0.28.1. (I might make an actual requirements.txt file later.)
