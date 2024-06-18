@@ -387,29 +387,12 @@ def spreadsheet_ascii_grid_as_color_by_location(grid: np.ndarray):
 
     return out
 
-    out = (
-        "[\n"
-        + "\n".join(
-            "    ["
-            + ", ".join(
-                f"({grid[i, j]}, {get_spreadsheet_notation_str(i, j)})"
-                for i in range(rows)
-            )
-            + "],"
-            for j in range(cols)
-        )
-        + "\n]"
-    )
-
-    return out
-
 
 tokenizer = tiktoken.encoding_for_model("gpt-4o")
 
 # [tokenizer.decode([x]) for x in tokenizer.encode("A1 ... A7")]
 
 
-# TODO: try swapping to by col instead of by row which is arguably more natural
 def get_spreadsheet_notation_support_runs(rows_cols: list[tuple[int, int]]):
     row_cols_v = np.array(sorted(rows_cols, key=lambda x: (x[0], x[1])))
 
@@ -445,50 +428,6 @@ def get_spreadsheet_notation_support_runs(rows_cols: list[tuple[int, int]]):
 
     return running_str
 
-
-def spreadsheet_ascii_grid_by_color(
-    grid: np.ndarray,
-    use_alt_color_scheme: bool = True,
-    max_allowed_tokens_per_color: Optional[int] = None,
-):
-    out = ""
-    for color in range(11):
-        # assumes sorted (which is accurate)
-        rows, cols = (grid == color).nonzero()
-        if len(rows) == 0:
-            continue
-
-        color_items = get_spreadsheet_notation_support_runs(
-            [(i, j) for i, j in zip(rows, cols)]
-        )
-
-        if (
-            max_allowed_tokens_per_color is not None
-            and len(tokenizer.encode(color_items)) > max_allowed_tokens_per_color
-        ):
-            color_items = " [OMITTED DUE TO EXCESSIVE LENGTH]"
-
-        out += (
-            f"{(alt_color_scheme_name if use_alt_color_scheme else color_scheme_name)[color]} ({color}):{color_items}"
-        ) + "\n"
-
-    return out
-
-    out = "{\n"
-    for color in range(11):
-        # assumes sorted (which is accurate)
-        rows, cols = (grid == color).nonzero()
-        if len(rows) == 0:
-            continue
-        out += (
-            f'    "{color}": ['
-            + ", ".join(get_spreadsheet_notation_str(i, j) for i, j in zip(rows, cols))
-            + "],\n"
-        )
-
-    out += "}"
-
-    return out
 
 
 def find_contiguous_shapes(grid, color):
@@ -530,31 +469,6 @@ def spreadsheet_ascii_grid_by_color_contiguous(
         ) + "\n"
 
     return out, was_color_omitted
-
-    # TODO: support alt color scheme
-    out = "{\n"
-    for color in range(11):
-        contiguous_shapes = shapes_by_color[color]
-        if len(contiguous_shapes) == 0:
-            continue
-        out += (
-            f'    "{color}": '
-            + "{\n"
-            + "\n".join(
-                f'        "shape_{shape_idx}_with_color_{(alt_color_scheme_name if use_alt_color_scheme else color_scheme_name)[color]}_{color}": ['
-                + ", ".join(
-                    get_spreadsheet_notation_str(i, j)
-                    for i, j in sorted(shape, key=lambda x: (int(x[1]), int(x[0])))
-                )
-                + "],"
-                for shape_idx, shape in enumerate(contiguous_shapes)
-            )
-            + "\n    },\n"
-        )
-
-    out += "}"
-
-    return out
 
 
 def diff_is_concise(grid_input: np.ndarray, grid_output: np.ndarray):
@@ -754,27 +668,6 @@ def spreadsheet_ascii_grid_by_color_contiguous_absolute_small_shapes(
     return overall_out
 
 
-# %%
-
-# print(spreadsheet_ascii_grid_as_list_list_dicts(np.array([[1, 2], [3, 4]])))
-
-
-# %%
-
-# print(spreadsheet_ascii_grid_by_color(np.array([[1, 1], [3, 4]])))
-
-# %%
-
-
-# shapes_by_color_ex = {
-#     color: find_contiguous_shapes(np.array([[1, 0, 4], [0, 0, 1], [0, 1, 1]]), color)
-#     for color in range(11)
-# }
-# print(spreadsheet_ascii_grid_by_color_contiguous(shapes_by_color_ex))
-# print(spreadsheet_ascii_grid_by_color_contiguous_absolute(shapes_by_color_ex))
-
-
-# %%
 
 
 def ascii_grid(grid: np.ndarray, separator: str = "|", spreadsheet_ascii: bool = False):
