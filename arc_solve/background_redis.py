@@ -12,6 +12,13 @@ def run_redis_in_background():
     os.makedirs("./redis_dir", exist_ok=True)
     shutil.copy(Path(__file__).parent.parent / "redis.conf", "./redis_dir/redis.conf")
 
-    # cd ./redis_dir && redis-server --port $REDIS_READER_PORT &> log.txt &
-    shell_cmd = f"redis-server --port {redis_port} &> ./log.txt &; disown %"
-    subprocess.run(["bash", "-c", shell_cmd], cwd="./redis_dir", check=True)
+    log_file = "./log.txt"
+
+    process = subprocess.Popen(
+        ["redis-server", f"--port {redis_port}"],
+        stdout=open(log_file, "a"),
+        stderr=open(log_file, "a"),
+        cwd="./redis_dir",
+    )
+
+    return process
