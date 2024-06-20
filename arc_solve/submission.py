@@ -61,7 +61,9 @@ def select_best_to_submit(
 
     other_items = [x for x, _ in filt_results if not x.all_train_correct()]
 
-    if len(other_items) == 0 or remaining_count == 0: # just for speedy early exit, probably doesn't speed up much in total
+    if (
+        len(other_items) == 0 or remaining_count == 0
+    ):  # just for speedy early exit, probably doesn't speed up much in total
         return [[[list(z) for z in y] for y in x] for x in train_correct_selections]
 
     rank_prod_other_items = get_rank_geo_mean_score(
@@ -93,7 +95,7 @@ def select_best_to_submit(
     return out
 
 
-def is_correct_select_best_to_submit(
+def make_submission_item_select_best_to_submit(
     name: str,
     results: list[tuple[RunOutput, str]],
     n_to_submit: int = 3,
@@ -107,124 +109,41 @@ def is_correct_select_best_to_submit(
         results, train_data=train_data, test_inputs=test_inputs, n_to_submit=n_to_submit
     )
 
-    # actually grade here!
-    test_data = data["test"]
-    test_data_outputs = [x["output"] for x in test_data]
-    return any(x == test_data_outputs for x in best_to_submit)
+    as_attempts = {f"attempt_{i+1}": x for i, x in enumerate(best_to_submit)}
+
+    return [
+        {k: v[which_inp] for k, v in as_attempts.items()}
+        for which_inp in range(len(best_to_submit[0]))
+    ]
 
 
-def is_correct_select_best_on_dict(
+def make_submission_dict(
     eval_out: dict[str, list[tuple[RunOutput, str]]],
     n_to_submit: int = 3,
 ):
     return {
-        name: is_correct_select_best_to_submit(name, results, n_to_submit=n_to_submit)
+        name: make_submission_item_select_best_to_submit(
+            name, results, n_to_submit=n_to_submit
+        )
         for name, results in eval_out.items()
     }
 
 
-@attrs.frozen
-class SubInfo:
-    is_corr: bool
-    run_output: RunOutput
-    reasoning_and_code: str
-    weight: float
-
-    @classmethod
-    def from_tup(cls, is_corr: bool, rest: tuple[RunOutput, str, float]):
-        run_output, reasoning_and_code, weight = rest
-
-        return cls(
-            is_corr=is_corr,
-            run_output=run_output,
-            reasoning_and_code=reasoning_and_code,
-            weight=weight,
-        )
-
-
-def is_correct_select_best_to_submit_and_get_results_for_each(
-    name: str,
-    results: list[tuple[RunOutput, str]],
-    n_to_submit: int = 3,
+def score_submission_dict(
+    submission: dict[str, list[dict[str, list[list[int]]]]],
+    correct_outputs: dict[str, list[list[list[int]]]],
+    allowed_attempts: int = 3,
 ):
-    data = out_data_by_name_d[name]
+    corr_by_name: dict[str, bool] = {}
+    for name, expected in correct_outputs.items():
+        sub = submission[name]
+        assert len(sub) == len(expected)
+        convert_subs_to_lists = [
+            [sub[i][f"attempt_{j+1}"] for i in range(len(expected))]
+            for j in range(allowed_attempts)
+        ]
 
-    train_data = data["train"]
-    test_inputs = [x["input"] for x in data["test"]]
+        corr = any(x == expected for x in convert_subs_to_lists)
+        corr_by_name[name] = corr
 
-    best_to_submit = select_best_to_submit(
-        results, train_data=train_data, test_inputs=test_inputs, n_to_submit=n_to_submit
-    )
-
-    hashable_test_outputs_to_solution_weight: dict[
-        tuple[tuple[tuple[int, ...], ...], ...], list[tuple[RunOutput, str, float]]
-    ] = defaultdict(list)
-
-    for x, solution in results:
-        try:
-            test_output_hashable = x.test_output_as_hashable_unwrap()
-        except AssertionError:
-            continue
-        hashable_test_outputs_to_solution_weight[test_output_hashable].append(
-            (
-                x,
-                solution,
-                1e20 if x.all_train_correct() else 1.0,
-            )  # 1e20 is a hack to get a submission which is correct on train set (if exists)
-        )
-
-    gen = np.random.default_rng(42)
-
-    normalize_list = lambda x: np.array(x) / np.sum(x)
-
-    hashable_test_outputs_to_sampled_solution = {
-        k: tuple(
-            gen.choice(
-                np.array(v), size=1, p=normalize_list([w for _, _, w in v]), axis=0
-            )[0].tolist()
-        )
-        for k, v in hashable_test_outputs_to_solution_weight.items()
-    }
-
-    # actually grade here!
-    test_data = data["test"]
-    test_data_outputs = [x["output"] for x in test_data]
-    return [
-        SubInfo.from_tup(
-            x == test_data_outputs,
-            hashable_test_outputs_to_sampled_solution[
-                tuple(tuple(tuple(a) for a in b) for b in x)
-            ],
-        )
-        for x in best_to_submit
-    ]
-
-
-def submission_nice_info_by_problem(
-    eval_out: dict[str, list[tuple[RunOutput, str]]],
-    n_to_submit: int = 3,
-):
-    return {
-        k: is_correct_select_best_to_submit_and_get_results_for_each(
-            k, v, n_to_submit=n_to_submit
-        )
-        for k, v in eval_out.items()
-    }
-
-
-def mean_correct_select_best_on_dict(
-    eval_out: dict[str, list[tuple[RunOutput, str]]],
-    n_to_submit: int = 3,
-):
-    correct_dict = is_correct_select_best_on_dict(eval_out, n_to_submit=n_to_submit)
-    return sum(correct_dict.values()) / len(correct_dict)
-
-
-def each_mean_correct_select_best_on_dict(
-    all_eval_out: dict[str, dict[str, list[tuple[RunOutput, str]]]],
-    n_to_submit: int = 3,
-):
-    return {
-        k: mean_correct_select_best_on_dict(v, n_to_submit=n_to_submit)
-        for k, v in all_eval_out.items()
-    }
+    return corr_by_name, np.mean(list(corr_by_name.values()))

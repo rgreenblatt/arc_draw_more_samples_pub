@@ -1,11 +1,25 @@
+# %%
+# import os
+
+# # %%
+
+# os.environ["REDIS_READER_PORT"] = "6381"
+# os.environ["INPUT_JSON"] = "./arc-agi_evaluation_challenges.json"
+
+# os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
+
+# %%
+
+# %%
+
+
 from collections import defaultdict
 import os
+import json
 import random
 from typing import Any, Callable, Optional, TypeVar
 import asyncio
 
-os.environ["REDIS_READER_PORT"] = "6381"
-# os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
 
 from tqdm.asyncio import tqdm_asyncio
 import nest_asyncio
@@ -22,12 +36,8 @@ from arc_solve.prompting import (
     run_on_input_with_name_alt,
 )
 from arc_solve.submission import (
-    SubInfo,
-    each_mean_correct_select_best_on_dict,
-    is_correct_select_best_on_dict,
-    is_correct_select_best_to_submit,
-    mean_correct_select_best_on_dict,
-    submission_nice_info_by_problem,
+    make_submission_dict,
+    score_submission_dict,
 )
 from arc_solve.render import RenderArgs, grid_to_base64_png_oai_content, show_grid
 from arc_solve.run_programs import (
@@ -39,9 +49,8 @@ from arc_solve.run_programs import (
 )
 from arc_solve.edit_distance import is_valid, select_best_k_items_in_terms_of_distance
 from arc_solve.load_data import (
-    out_train_data_by_name_d,
-    out_eval_data_by_name_d,
     out_data_by_name_d,
+    loaded_names,
 )
 from arc_solve.reasoning_and_labels import (
     code_repair_example_4,
@@ -89,22 +98,6 @@ nest_asyncio.apply()
 
 # %%
 
-demo_ex = out_data_by_name_d["a5313dff.json"]["train"][1]
-demo_ex_inp = demo_ex["input"]
-demo_ex_out = demo_ex["output"]
-# show_grid(
-#     np.array(demo_ex_out),
-#     # should_highlight=np.array(demo_ex_inp) != np.array(demo_ex_out),
-#     # use_larger_edges=True,
-# )
-
-# show_grid(
-#     np.array(demo_ex_inp),
-#     lower_right_triangle=np.array(demo_ex_out),
-# )
-
-# %%
-
 eval_out_here = asyncio.run(
     evaluate_funcs_with_timeout_cache(
         [
@@ -141,7 +134,6 @@ eval_out_here = asyncio.run(
 for item in eval_out_here:
     assert item.run_output is not None
     assert item.run_output.all_train_correct(), f"fail at {item.key_name_s.name}"
-    assert item.run_output.all_test_correct()
 
 # %%
 
@@ -178,7 +170,6 @@ for item in code_reasoning_examples_all_outputs:
 for k, vs in code_reasoning_examples_name_to_idx.items():
     last = vs[max(vs.keys())]
     assert last.all_train_correct()
-    assert last.all_test_correct()
 
 # %%
 
@@ -197,7 +188,7 @@ code_repair_reasoning_examples_w_outputs = [
 
 code_repair_spreadsheet_alt_color_reasoning_examples_use = (
     # code_repair_spreadsheet_alt_color_reasoning_examples
-    code_repair_spreadsheet_alt_color_reasoning_examples_swap # IDK if we should actually use this...
+    code_repair_spreadsheet_alt_color_reasoning_examples_swap  # IDK if we should actually use this...
     # code_repair_spreadsheet_alt_color_reasoning_examples_alt_shorter
 )
 
@@ -229,7 +220,6 @@ for item in code_reasoning_examples_spreadsheet_all_outputs:
 for k, vs in code_reasoning_examples_spreadsheet_name_to_idx.items():
     last = vs[max(vs.keys())]
     assert last.all_train_correct()
-    assert last.all_test_correct()
 
 
 # %%
@@ -284,7 +274,6 @@ for item in code_reasoning_examples_change_alt_color_all_outputs:
 for k, vs in code_reasoning_examples_change_alt_color_name_to_idx.items():
     last = vs[max(vs.keys())]
     assert last.all_train_correct()
-    assert last.all_test_correct()
 
 # %%
 
@@ -301,84 +290,14 @@ code_repair_reasoning_examples_w_outputs_change_alt_color = [
 
 # %%
 
-# exclude_names_alt = set()
-exclude_names_alt = {x for x, _ in reasoning_labeled_items}.union(
-    {x for x, _ in code_repair_spreadsheet_alt_color_reasoning_examples},
-    {
-        code_repair_example_3,
-        code_repair_example_12_for_spreadsheet_alt_color,
-    },  # exclude for legacy/cache reasons
-    {x for x, _ in code_repair_reasoning_examples},
-    {x for x, _ in code_repair_reasoning_examples_change_alt_color},
-    {x for x, _ in code_repair_reasoning_examples_change_alt_color_new_long},
-    {x for x, _ in code_repair_reasoning_examples_change_alt_color_new_short},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard_alt},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_alt},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_extra},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_extra_extra},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_alt_again},
-    {x for x, _ in reasoning_labeled_items_alt_color},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_add},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_add_swap},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_add_just_change},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_total_alternative_prompt},
-    {x for x, _ in reasoning_labeled_change_spreadsheet_prompt_alt_color},
-    {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff},
-    {x for x, _ in reasoning_labeled_change_prompt_alt_color_another_alt_prompt},
-    # these excluded because they sometimes trigger content filtering!?! (NOTE: just from train set, not val set)
-    {
-        "50846271.json",
-        "150deff5.json",
-    },
-    # {
-    #     # TOO LONG FIX ME
-    #     "3631a71a.json",
-    # },
-    # more unsafe content triggers... (I think all from train set?)
-    {
-        "c0f76784.json",
-        "e73095fd.json",
-        "a8d7556c.json",
-        "44d8ac46.json",
-    },
-)
+names_alt = list(loaded_names)
 
-# use_train_set = False
-use_train_set = True
-
-is_final_eval = False
-# is_final_eval = True
-
-if use_train_set:
-    names_alt = list(out_train_data_by_name_d.keys())
-else:
-    names_alt = list(out_eval_data_by_name_d.keys())
-
-    # we shouldn't be excluding anything from eval
-    assert len(set(names_alt) & exclude_names_alt) == 0
-
-
-random.seed(37842)
-random.shuffle(names_alt)
-names_alt = [x for idx, x in enumerate(names_alt) if x not in exclude_names_alt]
-
-if is_final_eval:
-    if use_train_set:
-        names_alt = names_alt[-100:]  # We can also iterate on the next 200 or so.
-    else:
-        names_alt = names_alt[:100]
-else:
-    if use_train_set:
-        names_alt = names_alt[:100]
-    else:
-        names_alt = names_alt[-100:]
-
+if "RUN_ON_SUBSET" in os.environ:
+    subset = int(os.environ["RUN_ON_SUBSET"])
+    names_alt = names_alt[:subset]
 
 len(names_alt)
+
 # %%
 
 prompt_settings = [
@@ -449,7 +368,6 @@ async def run_all_alt():
     n = 256
     n_by_key = None
 
-
     out: list[tuple[str, PromptArgs, float, Optional[list[str]]]] = (
         await tqdm_asyncio.gather(
             *[
@@ -500,6 +418,8 @@ async def run_all_alt():
         for settings, vals in items.items()
     }
 
+
+# %%
 
 # %%
 
@@ -673,76 +593,6 @@ def get_filt_has_all_train_corr(
     }
 
 
-def get_is_test_corr_for_all_train_corr(
-    filt_has_all_train_corr: dict[str, dict[str, list[tuple[RunOutput, str]]]]
-) -> dict[str, dict[str, list[bool]]]:
-    return {
-        k: {name: [l.all_test_correct() for l, _ in v] for name, v in vs.items()}
-        for k, vs in filt_has_all_train_corr.items()
-    }
-
-
-# %%
-
-
-# hacky utils for some checks
-def three_attempts(x: float) -> float:
-    # Biased coin, probability of heads on at least one flip out of 3
-    return 1 - (1 - x) ** 3
-
-
-def compute_corr_for_bools(x: list[bool]) -> float:
-    if len(x) == 0:
-        return 0.0
-    return three_attempts(sum(x) / len(x))
-
-
-# %%
-
-has_any_none = map_item_eval(
-    eval_out_dict_main,
-    lambda x: any(y is None for y in x.train_results)
-    or any(y is None for y in x.test_results),
-)
-
-# %%
-
-lim_k = 100000000
-
-# %%
-
-
-# %%
-
-initial_corr_lim_k = each_mean_correct_select_best_on_dict(
-    {
-        k: {name: vals.get(name, [])[:lim_k] for name in names_alt}
-        for k, vals in eval_out_dict_main.items()
-    }
-)
-print(f"{initial_corr_lim_k=}")
-
-# %%
-
-# lim_k_for_compare_prompts = 1024
-
-# compare_prompts_fixed_k_corr_vals = each_mean_correct_select_best_on_dict(
-#     {
-#         k: {name: vals.get(name, [])[:lim_k_for_compare_prompts] for name in names_alt}
-#         for k, vals in eval_out_dict_main.items()
-#     }
-# )
-
-# # default: v0
-# # use_spreadsheet_or_change_prompt: v1
-# # use_spreadsheet_or_change_prompt_alts: different for diversity
-# # use_spreadsheet_or_change_concise_diff: v2
-
-# print(f"{compare_prompts_fixed_k_corr_vals=}")
-
-# %%
-
-
 # %% [markdown]
 
 # # fancy shit, not most of action
@@ -753,7 +603,7 @@ total_all_train_corr_by_name: dict[str, int] = defaultdict(int)
 
 filt_has_all_train_corr = get_filt_has_all_train_corr(
     {
-        k: {name: x.get(name, [])[:lim_k] for name in names_alt}
+        k: {name: x.get(name, []) for name in names_alt}
         for k, x in eval_out_dict_main.items()
     }
 )
@@ -879,23 +729,24 @@ async def run_all_fix_items():
     # Do exponential decay with 0.75x each time
     # (1/2 also worked well.)
 
-    target_total_n = 128
-    # target_total_n = 3072
+    # target_total_n = 128
+    # # target_total_n = 3072
 
-    multiplier = 3 / 4
+    # multiplier = 3 / 4
 
-    initial_val = target_total_n * (1 - multiplier)
+    # initial_val = target_total_n * (1 - multiplier)
 
-    def round_to_nearest_32(x: float) -> int:
-        return int(32 * round(x / 32))
+    # def round_to_nearest_32(x: float) -> int:
+    #     return int(32 * round(x / 32))
 
-    ns: list[int] = []
-    for i in range(1000):
-        here = initial_val * multiplier**i
-        round_nearest = round_to_nearest_32(here)
-        if round_nearest == 0:
-            break
-        ns.append(round_nearest)
+    # ns: list[int] = []
+    # for i in range(1000):
+    #     here = initial_val * multiplier**i
+    #     round_nearest = round_to_nearest_32(here)
+    #     if round_nearest == 0:
+    #         break
+    #     ns.append(round_nearest)
+    ns = [64, 32]
 
     print(f"{sum(ns)=} {ns=}")
 
@@ -1057,164 +908,40 @@ eval_out_after_fix_dict = process_eval_out(eval_out_after_fix)
 
 # %%
 
-
-# prefix = "train_" if use_train_set else "test_"
-
-# with open(f"{prefix}eval_out_after_fix_dict.json", "w") as f:
-#     f.write(json_converter.dumps(eval_out_after_fix_dict))
-
-# # %%
-
-# with open(f"{prefix}eval_out_after_fix_dict.json", "r") as f:
-#     loaded_eval_out_after_fix_dict = json_converter.loads(
-#         f.read(), dict[str, dict[str, list[tuple[RunOutput, str]]]]
-#     )
-
-# assert loaded_eval_out_after_fix_dict == eval_out_after_fix_dict
-
-# # %%
-
-# before_after_fix_reasoning_lists = {
-#     k: [
-#         ([x for x, _ in all_prior], next_reasoning)
-#         for all_prior, next_reasoning in items_here
-#     ]
-#     for k, items_here in fix_items_with_w_reasoning_and_outputs.items()
-# }
-
-
-# prefix = "train_" if use_train_set else "test_"
-
-# with open(f"{prefix}before_and_fix_reasoning_lists.json", "w") as f:
-#     f.write(json_converter.dumps(before_after_fix_reasoning_lists))
-
-# # %%
-
-# with open(f"{prefix}before_and_fix_reasoning_lists.json", "r") as f:
-#     loaded_before_and_after_fix_reasoning_lists = json_converter.loads(
-#         f.read(), dict[str, list[tuple[list[str], str]]]
-#     )
-
-# assert loaded_before_and_after_fix_reasoning_lists == before_after_fix_reasoning_lists
-
-# %%
-
-eval_out_after_fix_w_reasoning = process_eval_out_w_reasoning_and_outputs(
-    eval_out_after_fix, {"post_fix": fix_items_with_w_reasoning_and_outputs}
-)
-
-filt_has_all_train_corr_after_fix = get_filt_has_all_train_corr(eval_out_after_fix_dict)
-is_test_corr_for_all_train_corr_after_fix = get_is_test_corr_for_all_train_corr(
-    filt_has_all_train_corr_after_fix
-)
-
-# when reporting stats, just show one where was previously incorrect
-fix_additional_corr_all = each_mean_correct_select_best_on_dict(
-    {
-        k: {n: v[n] for n in names_no_train_corr}
-        for k, v in eval_out_after_fix_dict.items()
-    }
-)
-assert list(fix_additional_corr_all.keys()) == ["post_fix"]
-fix_additional_corr = fix_additional_corr_all["post_fix"]
-
-assert list(eval_out_after_fix_dict.keys()) == ["post_fix"]
-
-count_fix_solved = fix_additional_corr * len(names_no_train_corr)
-
-# NOTE: this doesn't report exactly what you might want it to report. You should probalby just look at the final merged numbers!!!
-# (And manually try removing/adding the test inputs by commenting out the corresponding blok of eval_out_after_fix_dict.)
-# print(f"{fix_additional_corr=} {count_fix_solved=}")
+ALLOWED_ATTEMPTS = 2
 
 # %%
 
 all_fully_merged_eval: dict[str, list[tuple[RunOutput, str]]] = defaultdict(list)
 
-lim_k_here = 10000000
-
 for k, vs in eval_out_dict_main.items():
     for name, v in vs.items():
-        all_fully_merged_eval[name].extend(v[:lim_k_here])
+        all_fully_merged_eval[name].extend(v)
 
 for _, vs in eval_out_after_fix_dict.items():
     for name, v in vs.items():
         all_fully_merged_eval[name].extend(v)
 
-final_corr_rate = mean_correct_select_best_on_dict(
+submission_dict = make_submission_dict(
     all_fully_merged_eval,
-    n_to_submit=3,
-    # n_to_submit=2,
+    n_to_submit=ALLOWED_ATTEMPTS,
 )
-print(f"{final_corr_rate=}")
 
 # %%
 
-# Perf vs test samples (manually varying 3072 above):
-
-# - 3040: 0.50 / 0.72 (test vs train)
-# - 1536: 0.50 / 0.69 (test vs train)
-# - 960: 0.47 / 0.69
-# - 480: 0.47 / 0.7
-# - 224: 0.46   / 0.71
-# - 96: 0.42   / 0.69
-# - 0:  0.37  / 0.66
+with open("submission.json", "w") as file:
+    json.dump(submission_dict, file, indent=4)
 
 # %%
 
-# (0.5-0.37)/(1-0.37)
-# (0.72-0.66)/(1-0.66)
+# with open("submission.json", "r") as file:
+#     loaded_sub = json.load(file)
 
-# %%
+# expected_sub_file = "arc-agi_evaluation_solutions.json"
 
+# with open(expected_sub_file, "r") as file:
+#     expected_sub = json.load(file)
 
-nice_info_for_save = submission_nice_info_by_problem(all_fully_merged_eval)
+# score_by, overall_score = score_submission_dict(loaded_sub, expected_sub, allowed_attempts=ALLOWED_ATTEMPTS)
 
-# %%
-
-nice_info_for_save_standard_order = {
-    name: tuple(nice_info_for_save[name]) for name in names_alt
-}
-
-# next(iter(nice_info_for_save_standard_order.values()))
-
-prefix = "train_" if use_train_set else "test_"
-
-with open(f"{prefix}submission_info.json", "w") as f:
-    f.write(json_converter.dumps(nice_info_for_save_standard_order, indent=4))
-
-# %%
-
-
-with open(f"{prefix}submission_info.json", "r") as f:
-    loaded_nice_info = json_converter.loads(
-        f.read(),
-        dict[str, tuple[SubInfo, SubInfo, SubInfo]],
-    )
-
-# currently fails on stdout stderror for unclear reasonings, probably doesn't matter
-# assert loaded_nice_info == nice_info_for_save_standard_order
-
-# %%
-
-(ex_1, outputs_1), (ex_2, outputs_2), (ex_3, outputs_3) = list(
-    loaded_nice_info.items()
-)[-6:-3]
-first_corr_for_outputs_1 = ([x for x in outputs_1 if x.is_corr] + list(outputs_1))[0]
-first_corr_for_outputs_2 = ([x for x in outputs_2 if x.is_corr] + list(outputs_2))[0]
-first_corr_for_outputs_3 = ([x for x in outputs_3 if x.is_corr] + list(outputs_3))[0]
-
-correct_w_order_by_item = [
-    [x.is_corr for x in outputs] for outputs in [outputs_1, outputs_2, outputs_3]
-]
-
-is_corr_by_output = [
-    x.is_corr
-    for x in [
-        first_corr_for_outputs_1,
-        first_corr_for_outputs_2,
-        first_corr_for_outputs_3,
-    ]
-]
-
-
-# %%
+# print(f"{overall_score=}")

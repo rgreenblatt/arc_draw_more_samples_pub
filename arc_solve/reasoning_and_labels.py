@@ -4958,6 +4958,32 @@ code_repair_spreadsheet_alt_color_reasoning_examples: list[
     ),
 ]
 
+code_repair_spreadsheet_alt_color_reasoning_examples_swap: list[
+    tuple[str, list[str]]
+] = [
+    (
+        code_repair_example_11_for_spreadsheet_alt_color,
+        [
+            code_repair_example_11_for_spreadsheet_alt_color_original_reasoning,
+            code_repair_example_11_for_spreadsheet_alt_color_fix_reasoning,
+        ],
+    ),
+    (
+        code_repair_example_13_for_spreadsheet_alt_color,
+        [
+            code_repair_example_13_for_spreadsheet_alt_color_original_reasoning,
+            code_repair_example_13_for_spreadsheet_alt_color_fix_reasoning,
+        ],
+    ),
+    (
+        code_repair_example_10_for_spreadsheet_alt_color,
+        [
+            code_repair_example_10_for_spreadsheet_alt_color_original_reasoning,
+            code_repair_example_10_for_spreadsheet_alt_color_fix_reasoning,
+        ],
+    ),
+]
+
 code_repair_spreadsheet_alt_color_reasoning_examples_alt_shorter: list[
     tuple[str, list[str]]
 ] = [

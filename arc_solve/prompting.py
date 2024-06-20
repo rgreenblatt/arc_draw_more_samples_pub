@@ -56,7 +56,7 @@ if "ANTHROPIC_API_KEY" not in os.environ:
         ...
 
 if "OPENAI_API_KEY" not in os.environ:
-    openai.api_key_path = os.path.expanduser("~/.openai_api_key_alt")
+    openai.api_key_path = os.path.expanduser("~/.openai_api_key_help")
     try:
         with open(openai.api_key_path, "r") as f:
             os.environ["OPENAI_API_KEY"] = f.read().strip()

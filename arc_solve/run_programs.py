@@ -33,7 +33,6 @@ class RunOutputHashable:
     train_corr: tuple[bool, ...]
     test_results: tuple[tuple[tuple[int, ...], ...] | None, ...]
     test_stdout_stderr: tuple[StdoutStderr, ...]
-    test_corr: tuple[bool, ...]
 
 
 @attrs.frozen
@@ -43,7 +42,6 @@ class RunOutput:
     train_corr: list[bool]
     test_results: list[list[list[int]] | None]
     test_stdout_stderr: list[StdoutStderr]
-    test_corr: list[bool]
 
     def fraction_train_correct(self):
         return sum(self.train_corr) / len(self.train_corr)
@@ -51,8 +49,6 @@ class RunOutput:
     def all_train_correct(self):
         return all(self.train_corr)
 
-    def all_test_correct(self):
-        return all(self.test_corr)
 
     def test_output_as_hashable(self):
         return tuple(
@@ -86,7 +82,6 @@ class RunOutput:
                 for x in self.test_results
             ),
             test_stdout_stderr=tuple(self.test_stdout_stderr),
-            test_corr=tuple(self.test_corr),
         )
 
     @classmethod
@@ -101,7 +96,6 @@ class RunOutput:
                 [list(y) for y in x] if x is not None else None for x in x.test_results
             ],
             test_stdout_stderr=list(x.test_stdout_stderr),
-            test_corr=list(x.test_corr),
         )
 
 
@@ -130,7 +124,6 @@ class RunItem:
                 train_corr=[False] * n_train,
                 test_results=[None] * n_test,
                 test_stdout_stderr=[StdoutStderr(stdout="", stderr="TIMEOUT")] * n_test,
-                test_corr=[False] * n_test,
             )
         else:
             run_output_final = run_output
@@ -250,7 +243,6 @@ def run_on_train_test(name: str, s: str):
     ]
     test_results = [x for x, _ in test_results_both]
     test_stdout_stderr = [y for _, y in test_results_both]
-    test_corr = [x == y for x, y in zip(test_results, [x["output"] for x in test])]
 
     return RunOutput(
         train_results=train_results,
@@ -258,5 +250,4 @@ def run_on_train_test(name: str, s: str):
         train_corr=train_corr,
         test_results=test_results,
         test_stdout_stderr=test_stdout_stderr,
-        test_corr=test_corr,
     )
