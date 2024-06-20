@@ -1,0 +1,11 @@
+tqdm
+numpy
+scipy
+scikit-image
+attrs
+cattrs
+nest_asyncio
+redis
+matplotlib
+anthropic
+openai==0.28.1
