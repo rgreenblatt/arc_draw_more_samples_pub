@@ -113,7 +113,7 @@ def make_submission_item_select_best_to_submit(
 
     return [
         {k: v[which_inp] for k, v in as_attempts.items()}
-        for which_inp in range(len(best_to_submit[0]))
+        for which_inp in range(len(test_inputs))
     ]
 
 
@@ -138,8 +138,14 @@ def score_submission_dict(
     for name, expected in correct_outputs.items():
         sub = submission[name]
         assert len(sub) == len(expected)
+
+        def get_warn(x, attempt, default):
+            if attempt not in x:
+                print("Missing!", name, attempt)
+            return x.get(attempt, default)
+
         convert_subs_to_lists = [
-            [sub[i][f"attempt_{j+1}"] for i in range(len(expected))]
+            [get_warn(sub[i], f"attempt_{j+1}", None) for i in range(len(expected))]
             for j in range(allowed_attempts)
         ]
 

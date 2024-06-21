@@ -5,6 +5,7 @@
 
 # os.environ["REDIS_READER_PORT"] = "6381"
 # os.environ["INPUT_JSON"] = "./arc-agi_evaluation_challenges.json"
+# os.environ["INPUT_TRAIN_JSON"] = "./arc-agi_training_challenges.json"
 
 # os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
 
@@ -364,8 +365,8 @@ async def run_all_alt():
     # n = 1024
     # n_by_key = {"use_spreadsheet_or_change_concise_diff": 2048}
 
-    # n = 256
     n = 256
+    # n = 128
     n_by_key = None
 
     out: list[tuple[str, PromptArgs, float, Optional[list[str]]]] = (
@@ -934,14 +935,202 @@ with open("submission.json", "w") as file:
 
 # %%
 
-# with open("submission.json", "r") as file:
-#     loaded_sub = json.load(file)
+with open("submission.json", "r") as file:
+    loaded_sub = json.load(file)
 
-# expected_sub_file = "arc-agi_evaluation_solutions.json"
+expected_sub_file = "arc-agi_evaluation_solutions.json"
 
-# with open(expected_sub_file, "r") as file:
-#     expected_sub = json.load(file)
+# %%
 
-# score_by, overall_score = score_submission_dict(loaded_sub, expected_sub, allowed_attempts=ALLOWED_ATTEMPTS)
+# loaded_sub["60c09cac"]
 
-# print(f"{overall_score=}")
+# %%
+
+with open(expected_sub_file, "r") as file:
+    expected_sub = json.load(file)
+
+score_by, overall_score = score_submission_dict(
+    loaded_sub, expected_sub, allowed_attempts=ALLOWED_ATTEMPTS
+)
+
+print(f"{overall_score=}")
+
+# %%
+
+
+def score_this(merged_eval):
+    submission_dict = make_submission_dict(
+        merged_eval,
+        n_to_submit=ALLOWED_ATTEMPTS,
+    )
+    _, overall_score = score_submission_dict(
+        submission_dict, expected_sub, allowed_attempts=ALLOWED_ATTEMPTS
+    )
+
+    print(f"{overall_score=}")
+
+    return overall_score
+
+
+# %%
+
+
+ks = np.logspace(0, 8, num=9, base=2, dtype=int)
+
+V = TypeVar("V")
+
+
+def run_for_k(
+    k: int, max_chunks: int = 16, key="use_spreadsheet_or_change_concise_diff"
+):
+    print(f"{k=}")
+
+    def split_into_chunks(x: list[V], k: int, max_chunks: int) -> list[list[V]]:
+        assert k <= len(x)
+
+        if k > len(x) // 2:
+            out_chunks = [x[:k]]
+        else:
+            out_chunks = [x[i : i + k] for i in list(range(0, len(x), k))[:max_chunks]]
+
+        for chunk in out_chunks:
+            assert len(chunk) == k
+
+        return out_chunks
+
+    split_dict = {
+        name: split_into_chunks(
+            eval_out_dict_main[key].get(name, []),
+            k,
+            max_chunks=max_chunks,
+        )
+        for name in names_alt
+    }
+
+    num_splits = len(next(iter(split_dict.values())))
+    for _, splits in split_dict.items():
+        assert len(splits) == num_splits
+
+    by_split_dicts = [
+        {name: splits[i] for name, splits in split_dict.items()}
+        for i in range(num_splits)
+    ]
+
+    return np.mean([score_this(x) for x in by_split_dicts])
+
+
+# %%
+
+perfs_by_k = [run_for_k(k, max_chunks=max(256 // k, 1)) for k in ks]
+# log_incor_by_k = np.log2(1 - np.array(perfs_by_k))
+lin_fit = np.polyfit(np.log2(ks[3:]), perfs_by_k[3:], 1)
+# log_incor_fit = np.polyfit(np.log2(ks)[3:], log_incor_by_k[3:], 1)
+
+# %%
+
+import math
+
+import matplotlib.pyplot as plt
+
+# %%
+
+
+def make_plot(
+    show_fit: bool,
+    use_log_incor: bool = False,
+    extrapolate_fit: bool = False,
+    extrapolate_fit_to: int = 23,
+    show_fit_with_revision_frac: Optional[float] = None,
+):
+    plt.clf()
+
+    plt.rcParams.update({"font.size": 20})
+
+    fig, ax = plt.subplots(figsize=(24, 20))
+
+    ks_to_use_v2 = ks
+
+    perf_to_use = perfs_by_k
+    fit_to_use = lin_fit
+
+    if show_fit:
+        ks_to_use_v2 = ks_to_use_v2[3:]
+        perf_to_use = perf_to_use[3:]
+
+    if extrapolate_fit:
+        assert show_fit
+
+        k_start = ks_to_use_v2[0]
+
+        start_point = math.floor(math.log2(k_start)) + 1
+        ks_to_use_for_fit = np.concatenate(
+            [
+                np.array(ks_to_use_v2),
+                np.logspace(
+                    start_point,
+                    extrapolate_fit_to,
+                    num=extrapolate_fit_to - start_point + 1,
+                    base=2,
+                    dtype=int,
+                ),
+            ]
+        ).tolist()
+        ks_to_use_for_fit_v2 = ks_to_use_for_fit
+        ks_to_use_for_fit_v0 = ks_to_use_for_fit
+        ks_to_use_tick = ks_to_use_for_fit_v2
+    else:
+        ks_to_use_for_fit_v2 = ks_to_use_v2
+        ks_to_use_tick = ks_to_use_v2
+
+    ax.plot(ks_to_use_v2, perf_to_use, label="V2")
+
+    if show_fit:
+        v2_fit_vals = np.polyval(fit_to_use, np.log2(ks_to_use_for_fit_v2))
+        ax.plot(
+            ks_to_use_for_fit_v2,
+            v2_fit_vals,
+            label=f"fit V2: {fit_to_use[0]:.3f}x + {fit_to_use[1]:.3f}",
+        )
+        if show_fit_with_revision_frac is not None:
+            assert not use_log_incor
+            # v2_fit_revision_vals = 1 - (
+            #     (1 - v2_fit_vals) * (1 - show_fit_with_revision_frac)
+            # )
+            rem_revision = 1 - show_fit_with_revision_frac
+            v2_fit_revision_vals = (
+                rem_revision * v2_fit_vals + show_fit_with_revision_frac
+            )
+            ax.plot(
+                ks_to_use_for_fit_v2,
+                v2_fit_revision_vals,
+                label=f"fit V2 w/ revision: {rem_revision * fit_to_use[0]:.3f}x + {rem_revision * fit_to_use[1] + show_fit_with_revision_frac:.3f}",
+            )
+
+    ax.set_xscale("log", base=2)
+
+    # Customize the ticks
+    ax.set_xticks(ks_to_use_tick)
+
+    # Format the ticks to show the full number instead of the exponent
+    ax.get_xaxis().set_major_formatter(
+        plt.FuncFormatter(
+            lambda x, _: f"{int(x)}" if x < 10_000 else f"$2^{{{int(np.log2(x))}}}$"
+        )
+    )
+
+    ax.axhline(y=0.0, color="black", linestyle="-")
+
+    ax.set_xlabel("k")
+    if use_log_incor:
+        ax.set_ylabel("Log top-3 incorrectness rate")
+    else:
+        ax.set_ylabel("Top-3 accuracy")
+    if show_fit:
+        plt.legend()
+
+    return fig, ax
+
+
+# %%
+
+# make_plot(show_fit=True)
