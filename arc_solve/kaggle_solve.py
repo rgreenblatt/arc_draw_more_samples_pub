@@ -278,7 +278,7 @@ assert os.environ["RUN_FULL_SAMPLES"] in {"0", "1"}, "invalid RUN_FULL_SAMPLES"
 is_small_run = os.environ["RUN_FULL_SAMPLES"] == "0"
 
 
-total_n = 256 if is_small_run else 1024
+total_n = 256 if is_small_run else 768
 n_per = 64 if is_small_run else 128
 n_per_by_key = None  # not currently supported
 
@@ -649,7 +649,7 @@ async def run_all_fix_items():
     if is_small_run:
         ns = [48, 32, 24, 16]
     else:
-        target_total_n = 512
+        target_total_n = 384
         multiplier = 3 / 4
 
         initial_val = target_total_n * (1 - multiplier)
