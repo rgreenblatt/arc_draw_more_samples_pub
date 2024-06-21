@@ -56,6 +56,7 @@ from arc_solve.run_programs import (
 )
 from arc_solve.edit_distance import is_valid, select_best_k_items_in_terms_of_distance
 from arc_solve.load_data import (
+    get_subset_to_run,
     out_data_by_name_d,
     loaded_names,
 )
@@ -243,13 +244,7 @@ code_repair_reasoning_examples_w_outputs_change_alt_color = [
 
 # %%
 
-names_alt = list(loaded_names)
-
-if "RUN_ON_SUBSET" in os.environ:
-    subset = int(os.environ["RUN_ON_SUBSET"])
-    names_alt = names_alt[:subset]
-
-len(names_alt)
+names_alt = get_subset_to_run()
 
 # %%
 
