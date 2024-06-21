@@ -13,13 +13,13 @@
 
 # os.environ["RUN_ON_SUBSET"] = "100"  # optional integer
 
-# os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
+# # os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
 
 # %%
 
 # %%
 
-
+import math
 from collections import defaultdict
 import os
 import json
@@ -278,10 +278,12 @@ assert os.environ["RUN_FULL_SAMPLES"] in {"0", "1"}, "invalid RUN_FULL_SAMPLES"
 is_small_run = os.environ["RUN_FULL_SAMPLES"] == "0"
 
 
+total_n = 256 if is_small_run else 1024
+n_per = 64 if is_small_run else 128
+n_per_by_key = None  # not currently supported
+
+
 async def run_all_alt():
-    total_n = 192 if is_small_run else 1024
-    n_per = 64 if is_small_run else 128
-    n_per_by_key = None  # not currently supported
     assert n_per_by_key is None
     assert (total_n % n_per) == 0
     count = total_n // n_per
@@ -645,7 +647,7 @@ async def run_all_fix_items():
     # (1/2 also worked well.)
 
     if is_small_run:
-        ns = [64, 32]
+        ns = [48, 32, 24, 16]
     else:
         target_total_n = 512
         multiplier = 3 / 4
@@ -860,10 +862,6 @@ with open("submission.json", "r") as file:
 
 # %%
 
-# loaded_sub["60c09cac"]
-
-# %%
-
 if "INPUT_JSON_SOLUTIONS" in os.environ and os.path.exists(
     os.environ["INPUT_JSON_SOLUTIONS"]
 ):
@@ -871,6 +869,8 @@ if "INPUT_JSON_SOLUTIONS" in os.environ and os.path.exists(
 
     with open(expected_sub_file, "r") as file:
         expected_sub = json.load(file)
+
+    expected_sub = {k: expected_sub[k] for k in names_alt}
 
     score_by, overall_score = score_submission_dict(
         loaded_sub, expected_sub, allowed_attempts=ALLOWED_ATTEMPTS
@@ -918,7 +918,14 @@ canonical_eval_shuffle = {
 # %%
 
 
-ks = np.logspace(0, 8, num=9, base=2, dtype=int)
+endpoint = math.log2(total_n)
+logspace_endpoint = math.floor(endpoint)
+ks = np.array(
+    np.logspace(
+        0, logspace_endpoint, num=logspace_endpoint + 1, base=2, dtype=int
+    ).tolist()
+    + [total_n]
+)
 
 V = TypeVar("V")
 
@@ -963,14 +970,12 @@ def run_for_k(k: int, max_chunks: int = 16):
 # %%
 
 if expected_sub is not None:
-    perfs_by_k = [run_for_k(k, max_chunks=max(256 // k, 1)) for k in ks]
+    perfs_by_k = [run_for_k(k, max_chunks=max(min(256, total_n) // k, 1)) for k in ks]
     # log_incor_by_k = np.log2(1 - np.array(perfs_by_k))
     lin_fit = np.polyfit(np.log2(ks[3:]), perfs_by_k[3:], 1)
     # log_incor_fit = np.polyfit(np.log2(ks)[3:], log_incor_by_k[3:], 1)
 
 # %%
-
-import math
 
 import matplotlib.pyplot as plt
 
