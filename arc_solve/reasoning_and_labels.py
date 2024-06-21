@@ -1,6 +1,8 @@
 import random
 import re
 
+from arc_solve.permutations import all_permutation_indices
+
 example_1 = "4be741c5.json"
 example_1_reasoning = """
 <reasoning>
@@ -721,473 +723,6 @@ def transform(grid_lst: list[list[int]]) -> list[list[int]]:
     return grid[top:bottom + 1, left:right + 1].tolist()
 ```
 """.strip()
-
-# intentional ordering
-# I've tried w/o example_7 and example_2. This is currently best I think, but all pretty close.
-reasoning_labeled_items = [
-    (
-        example_1,
-        example_1_reasoning,
-    ),
-    # (
-    #     example_7,
-    #     example_7_reasoning,
-    # ),
-    (
-        example_3,
-        example_3_reasoning,
-    ),
-    (
-        example_4,
-        example_4_reasoning,
-    ),
-    (
-        example_2,
-        example_2_reasoning,
-    ),
-    (
-        example_5,
-        example_5_reasoning,
-    ),
-]
-
-reasoning_labeled_items_alt = [
-    (
-        example_1,
-        example_1_reasoning,
-    ),
-    (
-        example_5,
-        example_5_reasoning,
-    ),
-    (
-        example_3,
-        example_3_reasoning,
-    ),
-    (
-        example_7,
-        example_7_reasoning,
-    ),
-    (
-        example_4,
-        example_4_reasoning,
-    ),
-]
-
-# reasoning_labeled_items_alt = [
-#     (
-#         example_7,
-#         example_7_reasoning,
-#     ),
-#     (
-#         example_8,
-#         example_8_reasoning,
-#     ),
-#     (
-#         example_9,
-#         example_9_reasoning,
-#     ),
-# ]
-
-# reasoning_labeled_items_shuf = list(reasoning_labeled_items)
-# random.seed(239847)
-# random.shuffle(reasoning_labeled_items_shuf)
-
-# reasoning_labeled_items = reasoning_labeled_items_shuf
-
-# %%
-
-# import tiktoken
-
-# tokenizer = tiktoken.encoding_for_model("gpt-4o")
-
-# len(tokenizer.encode(example_2_reasoning))
-
-# %%
-
-example_1_reasoning_ascii = """
-<reasoning>
-The outputs don't have the same shape as the inputs, and they don't appear to be somewhat edited copies of the input.
-
-The inputs appear to consist of "noisy" segments which are either stacked on top of each other or side-by-side. In other words, they are either noisy columns or noisy rows. Each segment consists of exactly one number. These numbers also appear in the output.
-
-In two of the example inputs (inputs 2 and 3), there are horizontal segments (rows) which are stacked on top of each other. The outputs for these inputs are each single columns. The number of each cell in the output column is the number of the corresponding segment in the input.
-
-In the other example input (input 1), there are vertical segments (columns) which are stacked side-by-side. The output for this input is a single row. The number of each cell in the output row is the number of the corresponding segment in the input.
-
-In the additional input, there are vertical segments (columns) which are stacked side-by-side. This input matches the "noisy" segment pattern of the other inputs.
-
-The transformation rule appears to be to identify the numbers of the segments and then to stack them side-by-side if they are columns or on top of each other if they are rows.
-
-My code will first need to determine if the input consists of column segments or row segments. Then, it will need to identify the numbers of the segments and stack them side-by-side or on top of each other as appropriate.
-
-How can I determine if the input consists of column segments or row segments? Inputs which consist of column segments don't necessarily have the same number in each literal column of the grid as it is "noisy". However, they do always have the same number in the leftmost (or rightmost) column. Otherwise, the leftmost (or rightmost) segment wouldn't be contiguous. Similarly, inputs which consist of row segments don't necessarily have the same number in each literal row of the grid as it is "noisy". However, they do always have the same number in the topmost (or bottommost) row.
-
-So, to identify if the input consists of column segments or row segments, I can check if all of the cells in the leftmost column have the same number. If they do, then the input consists of column segments. Otherwise, the input consists of row segments.
-
-I need to know the numbers of the segments (in order). I know that the segments are contiguous. So, I can take any row/column which includes all of the segments and then deduplicate the numbers in that row/column. The resulting list of numbers will be the numbers of the segments (in order). If the input consists of column segments, then I want to look at a row/column which will intersect with all of these segments. So, in the case of column segments, I want to look at any row. I'll use the top row. If the input consists of row segments, then I want to look at a row/column which will intersect with all of these segments. So, in the case of row segments, I want to look at any column. I'll use the left column.
-
-I'll use numpy in the code to make it easier to work with the grid.
-
-The code should:
-
-- Identify if the input consists of column segments or row segments. This can be done by checking if all of the cells in the leftmost column have the same number.
-- Identify the numbers of the segments (in order). This can be done by looking at the top row if the input consists of column segments and by looking at the left column if the input consists of row segments.
-- If the input is columns, return a single row where each cell is the number of the corresponding segment. If the input is rows, return a single column where each cell is the number of the corresponding segment.
-
-I'll now write the code.
-</reasoning>
-
-```python
-import numpy as np
-
-def transform(grid_lst: list[list[int]]) -> list[list[int]]:
-    grid = np.array(grid_lst)
-
-    left_column = grid[:, 0]
-    top_row = grid[0, :]
-
-    is_columns = np.all(left_column == left_column[0])
-
-    intersecting_item = top_row if is_columns else left_column
-
-    out_in_order = list(dict.fromkeys(intersecting_item))
-
-    if is_columns:
-        return [out_in_order]
-    else:
-        return [[x] for x in out_in_order]
-```
-""".strip()
-
-example_2_reasoning_ascii = """
-<reasoning>
-The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
-
-I'll describe the change from the input to the output in detail for each of the examples.
-
-In example 1, a number 8 2x2 square is removed from around the bottom left. The output contains a number 8 2x2 square in a different position, so it appears as though the square has been moved. It was moved to the top left. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 8 2x2 square used to be number 0 in the original input. The number 8 2x2 square exactly matches the number 0 2x2 square that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. A number 6 1x2 rectangle was removed from the top right. The output contains a number 6 1x2 rectangle in a different position, so it seems to have been moved. It was moved to the bottom right. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 6 1x2 rectangle used to be number 0 in the original input. The number 6 1x2 rectangle exactly matches the number 0 1x2 rectangle that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. The rest of the cells in the input are unchanged, including a number of number 7 cells.
-
-In example 2, a number 3 L shape is removed from the middle left. The output contains a number 3 L in a different position, so it seems to have been moved. It was moved to the top left. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 3 L used to be number 0 in the original input. The number 3 L exactly matches the number 0 L that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. A number 9 2x4 rectangle was removed from the top right. The output contains a number 9 2x4 rectangle in a different position, so it seems to have been moved. It was moved to the bottom right. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 9 2x4 rectangle used to be number 0 in the original input. The number 9 2x4 rectangle exactly matches the number 0 2x4 rectangle that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. The rest of the cells in the input are unchanged, including a number of number 6 cells.
-
-In example 3, a number 2 shape is removed from the top left. The output contains the same number 2 shape in a different position, so it seems to have been moved. It was moved to the bottom left. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 2 shape used to be number 0 in the original input. The number 2 shape exactly matches the number 0 shape that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. A number 8 shape was removed from the bottom right. The output contains a number 8 shape in a different position, so it seems to have been moved. It was moved to the top right. It seems to have been moved inside of a number 5 outline that was present in the original input. The new position of the number 8 shape used to be number 0 in the original input. The number 8 shape exactly matches the number 0 shape that was in the number 5 outline in the original input. So, there are no longer any number 0 cells in the number 5 outline. The rest of the cells in the input are unchanged, including a number of number 4 cells.
-
-The transformation rule appears to be to take whichever shapes can be used to fill in the gaps in the number 5 outlines and then move those shapes into the number 5 outlines. The number 2 shapes are removed from the old locations (replaced with number 0) and then the gap is filled in with the corresponding number. This is done while leaving everything else as is.
-
-I should check this rule and make sure it is unambiguous. Are there ever any cases where a different shape could have fit inside the number 5 outline? I should check example by example.
-
-In example 1, are there any 2x2 squares other than the number 8 square? No. Are there any 1x2 rectangles other than the number 6 rectangle? Yes, there is an number 7 1x2 rectangle. So, the rule is ambiguous in this case.
-
-So, the rule can't just be to take any shape which fits in the number 5 outline and move it into the number 5 outline. I should analyze what's going on with the cells which aren't moved. The cells which aren't moved in example 1 are number 7. There are multiple discontinuous number 7 cells while the number 8 and number 6 shapes are unique and contiguous. So, the rule could be to move the contiguous shapes which have a unique number into the outline where they fit. I need to check this rule in the other examples. In example 2, the number 3 and number 9 shapes are unique and contiguous while the number 6 cells have multiple discontinuous groups. In example 3, the number 2 and number 8 shapes are unique and contiguous while the number 4 cells are not. In the additional input, there is a unique number 7 shape and a unique number 4 shape while there are multiple discontinuous groups of number 2 cells. There are exactly two gaps in the number 5 outlines. So, the rule is unambiguous here as well.
-
-Ok, I now understand the rule. I need to identify the contiguous shapes which have a unique number and then move them into the corresponding void number 5 outline.
-
-To implement this, I will:
-
-1. Identify each number 5 outline. I can do this by finding all of the number 5 cells and then finding the contiguous number 5 groupings (which should correspond to each outline). This assumes that each number 5 outline is disjoint from the others. Is this assumption correct? Yes, it is correct. The number 5 outlines are disjoint from each other.
-2. For each number 5 outline, I will find the number 0 cells inside of it. Each number 5 outline is always rectangular, so I can find the bounding box of the number 5 outline and then find the number 0 cells inside of the bounding box.
-3. For each number 0 shape inside of a number 5 outline, I will find the contiguous shape of the same shape but of a different number. I can do this by finding all of the cells of each number and then finding the contiguous shapes of each number. I will then check if each shape is the same shape as the number 0 shape. I also need to check that the shape is the unique contiguous shape of that number.
-4. I will then move the shape into the number 5 outline and replace the old location of the shape with number 0.
-5. I will then return the new grid.
-
-I will now implement this in code.
-</reasoning>
-
-```python
-import numpy as np
-from scipy.ndimage import label
-
-def find_contiguous_shapes(grid, number):
-    labeled_array, num_features = label(grid == number)
-    shapes = []
-    for i in range(1, num_features + 1):
-        shapes.append(np.argwhere(labeled_array == i))
-    return shapes
-
-def transform(grid_lst: list[list[int]]) -> list[list[int]]:
-    grid = np.array(grid_lst)
-    outline_number = 5
-    background_number = 0
-
-    # Find all number 5 outlines
-    outline_shapes = find_contiguous_shapes(grid, outline_number)
-
-    for outline_shape in outline_shapes:
-        # Find the bounding box of the number 5 outline
-        min_row, min_col = np.min(outline_shape, axis=0)
-        max_row, max_col = np.max(outline_shape, axis=0)
-
-        # Find the background cells inside the number 5 outline
-        background_shape = np.argwhere(grid[min_row:max_row+1, min_col:max_col+1] == background_number)
-
-        # Adjust the coordinates to the original grid
-        background_shape += [min_row, min_col]
-
-        # Find the shape that matches the background shape
-        for number in range(1, 10):
-            if number == outline_number or number == background_number:
-                continue
-            number_shapes = find_contiguous_shapes(grid, number)
-            if len(number_shapes) > 1:
-                # discard multiple disconnected shapes
-                continue
-            if len(number_shapes) == 0:
-                continue
-
-            number_shape = number_shapes[0]
-            # this shape should be the same shape as the background shape
-            if np.array_equal(np.diff(np.sort(background_shape, axis=0), axis=0), np.diff(np.sort(number_shape, axis=0), axis=0)):
-                # Move the shape into the number 5 outline
-                for cell in background_shape:
-                    grid[cell[0], cell[1]] = number
-                # Replace the old location of the shape with background
-                for cell in number_shape:
-                    grid[cell[0], cell[1]] = background_number
-                break
-        else:
-            assert False, "No matching shape found"
-
-    return grid.tolist()
-```
-""".strip()
-
-example_3_reasoning_ascii = """
-<reasoning>
-The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
-
-I'll describe the change from the input to the output in detail for each of the examples.
-
-In example 1, the number 8 shape is reflected across the vertical line at the left edge of the number 8 shape. There is also a number 4 shape below the number 8 shape which is unchanged.
-
-In example 2, the number 8 shape is reflected across the vertical line at the right edge of the number 8 shape. The number 8 shape is different from the number 8 shape in example 1. There is also a number 4 shape below the number 8 shape which is unchanged. The number 4 shape is different from the number 4 shape in example 1. However, it is just the reflection of the number 4 shape in example 1.
-
-In example 3, the number 8 shape is reflected across the vertical line at the left edge of the number 8 shape. The number 8 shape is different from the number 8 shape in example 1. There is also a number 4 shape below the number 8 shape which is unchanged. The number 4 shape is the same as the number 4 shape in example 1.
-
-In the additional input, there is a number 8 shape and there is also a number 4 shape. The number 8 shape is different from the number 8 shape in example 1. The number 4 shape is the same as the number 4 shape in example 2 (which isn't the same as example 1).
-
-The rule is to reflect the number 8 shape across a vertical line at the edge of the number 8 shape. I need to determine which side of the number 8 shape to reflect towards. Example 2 differs from examples 1 and 3 in which side the number 8 shape is reflected towards. Are there any salient commonalities between examples 1 and 3 which differ from example 2? Yes, the number 4 shape is the same in examples 1 and 3. The number 4 shape is different in example 2. So, the orientation of the number 4 shape determines which side the number 8 shape is reflected towards.
-
-If the number 4 shape is:
-4|0|0
-4|4|4
-0|4|0
-
-Then the number 8 shape is reflected towards the left. If the number 4 shape is:
-0|0|4
-4|4|4
-0|4|0
-
-Then the number 8 shape is reflected towards the right.
-
-The number 4 shape always appears in the middle in the bottom 3 rows, so it should be easy to check what orientation it is in. Then, I just need to reflect the number 8 shape based on the orientation of the number 4 shape. If it is the first orientation, I reflect towards the left. If it is the second orientation, I reflect towards the right.
-
-I will now implement this in code.
-</reasoning>
-
-```python
-import numpy as np
-
-def reflect_shape(grid, shape_coords, direction):
-    min_row, min_col = np.min(shape_coords, axis=0)
-    max_row, max_col = np.max(shape_coords, axis=0)
-
-    if direction == 'left':
-        for row, col in shape_coords:
-            new_col = min_col - (col - min_col) - 1
-            grid[row, new_col] = grid[row, col]
-    elif direction == 'right':
-        for row, col in shape_coords:
-            new_col = max_col + (max_col - col) + 1
-            grid[row, new_col] = grid[row, col]
-
-def transform(grid_lst: list[list[int]]) -> list[list[int]]:
-    grid = np.array(grid_lst)
-    to_reflect_number = 8
-    determine_reflection_number = 4
-
-    # Find the number 4 shape
-    determine_reflection_shape = np.argwhere(grid == determine_reflection_number)
-
-    # Determine the orientation of the number 4 shape
-    if np.array_equal(determine_reflection_shape, np.array([[3, 3], [4, 3], [4, 4], [4, 5], [5, 4]])):
-        direction = 'left'
-    elif np.array_equal(determine_reflection_shape, np.array([[3, 5], [4, 3], [4, 4], [4, 5], [5, 4]])):
-        direction = 'right'
-    else:
-        raise ValueError("Unexpected number 4 shape orientation")
-
-    # Find the number 8 shape
-    to_reflect_shape = np.argwhere(grid == to_reflect_number)
-
-    # Reflect the number 8 shape
-    reflect_shape(grid, to_reflect_shape, direction)
-
-    return grid.tolist()
-```
-""".strip()
-
-example_4_reasoning_ascii = """
-<reasoning>
-The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
-
-I'll describe the change from the input to the output in detail for each of the examples.
-
-In example 1, the two number 8 cells are connected by a number 3 line. The line is horizontal and connects the two number 8 cells.
-
-In example 2, the four number 8 cells are connected by number 3 lines. The lines are vertical and connect the number 8 cells in pairs.
-
-In example 3, the four number 8 cells are connected by number 3 lines. The lines are horizontal and connect the number 8 cells in pairs.
-
-In example 4, the two number 8 cells are connected by a number 3 line. The line is vertical and connects the two number 8 cells.
-
-In example 5, there is only one number 8 cell, so no number 3 line is added.
-
-In example 6, the two number 8 cells are not connected by a number 3 line. This is because the number 8 cells are not aligned horizontally or vertically.
-
-In example 7, the three number 8 cells are connected by a number 3 line. The line is vertical and connects the number 8 cells in pairs.
-
-In example 8, the five number 8 cells are connected by number 3 lines. The lines are vertical and horizontal and connect the number 8 cells in pairs.
-
-The rule is to connect the number 8 cells with number 3 lines if they are aligned horizontally or vertically. If they are not aligned, no number 3 line is added.
-
-To implement this, I will:
-
-1. Identify the number 8 cells.
-2. Check which pairs of number 8 cells are aligned horizontally or vertically.
-3. For each pair of number 8 cells that are aligned horizontally or vertically, add a number 3 line connecting them. The number 3 line should fill in the cells in between the number 8 cells (but should not overwrite the number 8 cells).
-4. Return the new grid.
-
-I will now implement this in code.
-</reasoning>
-
-```python
-import numpy as np
-
-def transform(grid_lst: list[list[int]]) -> list[list[int]]:
-    grid = np.array(grid_lst)
-    to_connect_number = 8
-    connect_with_number = 3
-
-    # Find the number 8 cells
-    to_maybe_connect_cells = np.argwhere(grid == to_connect_number)
-
-    # Check pairs of number 8 cells for alignment
-    for i in range(len(to_maybe_connect_cells)):
-        for j in range(i + 1, len(to_maybe_connect_cells)):
-            cell1 = to_maybe_connect_cells[i]
-            cell2 = to_maybe_connect_cells[j]
-
-            if cell1[0] == cell2[0]:  # Aligned horizontally
-                row = cell1[0]
-                col_start = min(cell1[1], cell2[1]) + 1
-                col_end = max(cell1[1], cell2[1])
-                grid[row, col_start:col_end] = connect_with_number
-
-            elif cell1[1] == cell2[1]:  # Aligned vertically
-                col = cell1[1]
-                row_start = min(cell1[0], cell2[0]) + 1
-                row_end = max(cell1[0], cell2[0])
-                grid[row_start:row_end, col] = connect_with_number
-
-    return grid.tolist()
-```
-""".strip()
-
-# TODO: maybe add ascii reasoning for example_5
-reasoning_labeled_items_ascii = [
-    (
-        example_1,
-        example_1_reasoning_ascii,
-    ),
-    (
-        example_3,
-        example_3_reasoning_ascii,
-    ),
-    (
-        example_4,
-        example_4_reasoning_ascii,
-    ),
-    (
-        example_2,
-        example_2_reasoning_ascii,
-    ),
-]
-
-
-# %%
-
-nice_labeled_items = [
-    (
-        "4be741c5.json",
-        'The input consists of "noisy" segments which are either stacked vertically or horizontally. That is, it consists of an image that looks like rows/columns but with the boundaries being somewhat noisy. The first step in the transformation is to identify the colors and in what order they occur. If the segments are N rows stacked horizontally, the output will be an Nx1 output with the colors matching the colors of the rows. If it is N columns, the output will be the corresponding 1xN output.',
-    ),
-    (
-        "228f6490.json",
-        "The rule is that we take whichever shapes can be used to fill in the gaps in the grey outlines and then move those (colored) shapes into the grey outlines. As in, the colored shapes are removed from the old locations (replaced with black) and then the gap is filled in with the corresponding color. This is done while leaving everything else as is.",
-    ),
-    (
-        "760b3cac.json",
-        "The rule is to reflect the teal shape across a vertical line at the edge of the teal shape. Whether to reflect to the left or to the right is based on the orientation of the yellow shape which is always below the teal shape. In particular, the vertical reflection is over the side (left or right) of the yellow shape which has 2 vertical yellow squares (the top two filled out out of the 3x3 grid that that encloses the yellow shape).",
-        # The blue is mirrored towards the side where there are two vertical yellow squares in a point.
-    ),
-    (
-        "3ac3eb23.json",
-        "The rule is to create a checkerboard pattern starting from the given colored squares. The checkerboard pattern alternates colored squares with black squares, filling the three columns below the given colored squares, preserving the colors and the positions of the original squares in the input.",
-    ),
-    (
-        "31aa019c.json",
-        "The rule is to find the color of which there is only one cell in the input. Then, the output is just that cell surronded by a (3x3) border of red (with all other cells black).",
-    ),
-]
-
-
-alt_labeled_items = [
-    (
-        "e73095fd.json",  # content filtered!!! (???)
-        "The rule is to detect enclosed loops or regions formed by the grey lines and fill these enclosed spaces with yellow. The output adds these yellow-filled regions, while the structure of grey and black squares remains otherwise unchanged.",
-    ),
-]
-
-# %%
-
-extra_labeled_items = [
-    (
-        "a416b8f3.json",
-        "The rule is to take the given block and create a duplicate copy of it on its right side. The resulting output image is twice the width of the input image, with the original block on the left half and an identical copy directly to the right of it.",
-    ),
-    (
-        "846bdb03.json",
-        "The rule is to first identify the two columns which are 'capped' with yellow cells. The columns have different colors. Then, there are some other shapes which match the color of the columns. In particular, there are two shapes, one of each color which touch at some vertical line. The rule involves translating the shapes in between the two columns which are 'capped' with yellow cells. The shapes may also need to be reflected over the vertical line such that they match up with the color of the corresponding columns. The shapes should be translation such that they end up inbetween the yellow cells. The grid should be cut down to the minimum size necessary to columns ('capped' with yellow cells) and the space inbetween which is now filled with the corresponding shapes.",
-    ),
-    (
-        "50846271.json",
-        'First, the purple cross shapes must be identified. These are purple crosses, but have some cells which are greyed out. Next, the cells which are otherwise within the grid, but which are grey instead of purple, must be filled in with blue cells. The crosses are always "square" in the sense that they are X by X (where X is the maximum width/height of the original cross). There are grey cells in the background, all of these grey cells should be copied to the output. The purple crosses should be copied to the output, but with the grey cells replaced with blue cells.',
-    ),
-    (
-        "0520fde7.json",
-        "The overall input is 3x7 with two 3x3 grids separated by a grey column. The two 3x3 grids have some cells filled in with blue. The rule is to take the AND of the blue cells in the two 3x3 grids. This produces a new 3x3 grid of true/false values. The output is then a 3x3 grid with purple if the corresponding cell in the AND grid is true and black otherwise.",
-    ),
-    (
-        "253bf280.json",
-        "The output is the same size as the input. All teal cells in the input which are in the same row or column as another teal cell are connected by green cells. They are connected by filling the cells in between in that corresponding row/column with green.",
-    ),
-]
-
-buck_endorsed_rules = {
-    "178fcbfb.json": "The output is the same size as the input. First, fill every column that currently has a purple pixel to be purple. Then, fill every row that has a green pixel to be green, and every row that has a blue pixel to be blue.",
-    "88a62173.json": "The output is a 2x2 grid. The input is a 5x5 grid that is four 2x2 grids in the corners separated by a cross in the middle. Of these four 2x2 grids in the corners, three will be the same and one will be different. The result is the 2x2 grid that is different.",
-    "780d0b14.json": "Look for rows and columns that are entirely black, and form a grid with them. Now, each cell in the grid is a mix of black and some other color. The output is an image with one pixel for each cell in the grid, where the pixel is the non-black color in the cell.",
-    "445eab21.json": "Return a 2x2 grid filled with the most common non-black pixel in the input image.",
-    "22168020.json": "For every black pixel that is between two pixels of the same color in its row, color it the same as those other pixels.",
-}
-
-# %%
-
-test_set = [
-    *alt_labeled_items,
-    *extra_labeled_items,
-    *buck_endorsed_rules.items(),
-]
 
 # %%
 
@@ -1961,94 +1496,6 @@ def transform(grid_lst: list[list[int]]) -> list[list[int]]:
     return output.tolist()
 ```
 """.strip()
-
-
-code_repair_reasoning_examples: list[tuple[str, list[str]]] = [
-    (
-        code_repair_example_1,
-        [
-            code_repair_example_1_original_reasoning,
-            code_repair_example_1_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_2,
-        [
-            code_repair_example_2_original_reasoning,
-            code_repair_example_2_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_5,
-        [
-            code_repair_example_5_original_reasoning,
-            code_repair_example_5_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_4,
-        [
-            code_repair_example_4_original_reasoning,
-            code_repair_example_4_fix_reasoning,
-        ],
-    ),
-]
-
-code_repair_reasoning_examples_use_diff: list[tuple[str, list[str]]] = [
-    (
-        code_repair_example_1,
-        [
-            code_repair_example_1_original_reasoning,
-            code_repair_example_1_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_2,
-        [
-            code_repair_example_2_original_reasoning,
-            code_repair_example_2_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_5,
-        [
-            code_repair_example_5_original_reasoning,
-            code_repair_example_5_fix_reasoning_use_diff,
-        ],
-    ),
-    (
-        code_repair_example_4,
-        [
-            code_repair_example_4_original_reasoning,
-            code_repair_example_4_fix_reasoning,
-        ],
-    ),
-]
-
-code_repair_reasoning_examples_multi: list[tuple[str, list[str]]] = [
-    (
-        code_repair_example_1,
-        [
-            code_repair_example_1_original_reasoning,
-            code_repair_example_1_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_5,
-        [
-            code_repair_example_5_original_reasoning,
-            code_repair_example_5_fix_reasoning,
-        ],
-    ),
-    (
-        code_repair_example_3,
-        [
-            code_repair_example_3_original_reasoning,
-            code_repair_example_3_fix_reasoning,
-            code_repair_example_3_fix_reasoning_2,
-        ],
-    ),
-]
 
 
 def alt_color_replace(x: str):
@@ -3248,6 +2695,61 @@ reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff = [
 ]
 
 
+all_permutation_indices_filt_basic_for_concise_diff = [
+    perm for perm in all_permutation_indices[4] if perm[0] != 1 and perm[-1] != 1
+]
+
+permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff = [
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
+] + [
+    [reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff[i] for i in perm]
+    for perm in all_permutation_indices_filt_basic_for_concise_diff
+]
+
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter = [
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+]
+
+
+all_permutation_indices_filt_basic_for_concise_diff_shorter = [
+    perm for perm in all_permutation_indices[3]  # Nothing
+]
+
+permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter = [
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter
+] + [
+    [
+        reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter[i]
+        for i in perm
+    ]
+    for perm in all_permutation_indices_filt_basic_for_concise_diff_shorter
+]
+
+all_perm_reasoning_concise_diff_prompt_merge = (
+    permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
+    + permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter
+)
+
+assert len(set(tuple(x) for x in all_perm_reasoning_concise_diff_prompt_merge)) == len(
+    all_perm_reasoning_concise_diff_prompt_merge
+)
+
+for reasoning_perm in all_perm_reasoning_concise_diff_prompt_merge:
+    assert reasoning_perm[0][0] != example_2
+    assert reasoning_perm[-1][0] != example_2
+
+
 # %%
 
 example_1_reasoning_for_change_alt_color = """
@@ -4088,6 +3590,19 @@ reasoning_labeled_change_prompt_alt_color_add_swap = [
     ),
 ]
 
+all_permutation_indices_filt_basic_for_add_swap = [
+    perm
+    for perm in all_permutation_indices[5]
+    if perm[0] not in {1, 2} and perm[-1] not in {1, 2}
+]
+
+perms_reasoning_labeled_change_prompt_alt_color_add_swap = [
+    reasoning_labeled_change_prompt_alt_color_add_swap
+] + [
+    [reasoning_labeled_change_prompt_alt_color_add_swap[i] for i in perm]
+    for perm in all_permutation_indices_filt_basic_for_add_swap
+]
+
 reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt = [
     (example_11_for_change, example_11_for_change_reasoning_alt_color),
     (
@@ -4124,6 +3639,22 @@ reasoning_labeled_change_prompt_alt_color_total_alternative_prompt = [
     ),
 ]
 
+all_permutation_indices_filt_basic_for_total_alt_prompt = [
+    perm
+    for perm in all_permutation_indices[4]
+    # Nothing here
+]
+
+perms_reasoning_labeled_change_prompt_alt_color_total_alt_prompt = [
+    reasoning_labeled_change_prompt_alt_color_total_alternative_prompt
+] + [
+    [
+        reasoning_labeled_change_prompt_alt_color_total_alternative_prompt[i]
+        for i in perm
+    ]
+    for perm in all_permutation_indices_filt_basic_for_total_alt_prompt
+]
+
 reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
     (
         example_13_for_change,
@@ -4143,6 +3674,43 @@ reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
         example_9_reasoning_alt_color,
     ),
 ]
+
+all_permutation_indices_filt_basic_for_another_alt_prompt = [
+    perm
+    for perm in all_permutation_indices[5]
+    if perm[0] not in {1, 3} and perm[-1] not in {1, 3}
+]
+
+perms_reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
+    reasoning_labeled_change_prompt_alt_color_another_alt_prompt
+] + [
+    [reasoning_labeled_change_prompt_alt_color_another_alt_prompt[i] for i in perm]
+    for perm in all_permutation_indices_filt_basic_for_another_alt_prompt
+]
+
+# %%
+
+all_perm_reasoning_change_alt_color_prompt_merge = [
+    [
+        perms_reasoning_labeled_change_prompt_alt_color_another_alt_prompt,
+        perms_reasoning_labeled_change_prompt_alt_color_total_alt_prompt,
+        perms_reasoning_labeled_change_prompt_alt_color_add_swap,
+    ][i % 3][i // 3]
+    for i in range(24)
+]
+assert len(set(tuple(x) for x in all_perm_reasoning_change_alt_color_prompt_merge)) == len(
+    all_perm_reasoning_change_alt_color_prompt_merge
+)
+assert all(
+    item[-1][0] not in {example_3, example_12_for_change, example_5}
+    and item[0][0] not in {example_3, example_12_for_change, example_5}
+    for item in all_perm_reasoning_change_alt_color_prompt_merge
+)
+
+# %%
+
+# permutations_and_other_reasoning_change_alt_color = [ ]
+
 
 reasoning_labeled_change_prompt_alt_color_add_swap_again = [
     (
@@ -4932,9 +4500,7 @@ def transform(grid_lst):
 ```
 """.strip()
 
-code_repair_spreadsheet_alt_color_reasoning_examples: list[
-    tuple[str, list[str]]
-] = [
+code_repair_spreadsheet_alt_color_reasoning_examples: list[tuple[str, list[str]]] = [
     (
         code_repair_example_10_for_spreadsheet_alt_color,
         [

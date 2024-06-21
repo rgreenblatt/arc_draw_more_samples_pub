@@ -1,6 +1,7 @@
 from collections import defaultdict
 import os
 import random
+import contextlib
 from typing import Any, Callable, Optional, TypeVar
 import asyncio
 
@@ -8,6 +9,7 @@ os.environ["REDIS_READER_PORT"] = "6381"
 # os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
 
 from tqdm.asyncio import tqdm_asyncio
+import attrs
 import nest_asyncio
 import numpy as np
 from cattrs.preconf.json import make_converter
@@ -18,7 +20,12 @@ from arc_solve.prompting import (
     DisplayArgs,
     PromptArgs,
     fix_on_input,
+    get_rule_input_alt,
     is_eq_size_item,
+    make_all_fix_prompt_alt,
+    make_prompt_alt,
+    print_prompt,
+    process_prompt_args_for_name,
     run_on_input_with_name_alt,
 )
 from arc_solve.submission import (
@@ -49,14 +56,8 @@ from arc_solve.reasoning_and_labels import (
     code_repair_reasoning_examples_change_alt_color_new_long,
     code_repair_reasoning_examples_change_alt_color_new_long_use_diff,
     code_repair_reasoning_examples_change_alt_color_new_short,
-    reasoning_labeled_items_alt,
-    reasoning_labeled_items,
-    reasoning_labeled_items_ascii,
     reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard,
     reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard_alt,
-    code_repair_reasoning_examples,
-    code_repair_reasoning_examples_use_diff,
-    code_repair_reasoning_examples_multi,
     reasoning_labeled_items_full_spreadsheet_alt_color,
     code_repair_example_12_for_spreadsheet_alt_color,
     reasoning_labeled_items_full_spreadsheet_alt_color_extra,
@@ -80,6 +81,8 @@ from arc_solve.reasoning_and_labels import (
     reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt,
     reasoning_labeled_change_prompt_alt_color_total_alternative_prompt,
     reasoning_labeled_change_prompt_alt_color_another_alt_prompt,
+    all_perm_reasoning_change_alt_color_prompt_merge,
+    all_perm_reasoning_concise_diff_prompt_merge,
     reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff,
     # code_repair_spreadsheet_w_diff_new_alt_color_reasoning_examples,
 )
@@ -114,9 +117,7 @@ eval_out_here = asyncio.run(
                 s=s,
                 s_idx=-10,
             )
-            for name, s in reasoning_labeled_items
-            + reasoning_labeled_items_alt
-            + reasoning_labeled_items_full_spreadsheet_alt_color
+            for name, s in reasoning_labeled_items_full_spreadsheet_alt_color
             + reasoning_labeled_items_full_spreadsheet_alt_color_alt
             + reasoning_labeled_items_alt_color
             + reasoning_labeled_change_prompt_alt_color
@@ -145,59 +146,9 @@ for item in eval_out_here:
 
 # %%
 
-code_repair_reasoning_examples_use = (
-    # code_repair_reasoning_examples
-    code_repair_reasoning_examples_use_diff
-)
-
-# %%
-
-code_reasoning_examples_all_outputs = asyncio.run(
-    evaluate_funcs_with_timeout_cache(
-        [
-            KeyNameS(
-                key=f"code_reasoning_step_idx_{idx}",
-                name=name,
-                s=s,
-                s_idx=idx,
-            )
-            for name, fixs in code_repair_reasoning_examples_use
-            for idx, s in enumerate(fixs)
-        ],
-        timeout=5.0,
-    )
-)
-
-code_reasoning_examples_name_to_idx: dict[str, dict[int, RunOutput]] = defaultdict(dict)
-
-for item in code_reasoning_examples_all_outputs:
-    code_reasoning_examples_name_to_idx[item.key_name_s.name][
-        item.key_name_s.s_idx
-    ] = item.run_output
-
-for k, vs in code_reasoning_examples_name_to_idx.items():
-    last = vs[max(vs.keys())]
-    assert last.all_train_correct()
-    assert last.all_test_correct()
-
-# %%
-
-code_repair_reasoning_examples_w_outputs = [
-    (
-        name,
-        [
-            (s, code_reasoning_examples_name_to_idx[name][idx])
-            for idx, s in enumerate(reasoning)
-        ],
-    )
-    for name, reasoning in code_repair_reasoning_examples_use
-]
-
-# %%
-
 code_repair_spreadsheet_alt_color_reasoning_examples_use = (
     # code_repair_spreadsheet_alt_color_reasoning_examples
-    code_repair_spreadsheet_alt_color_reasoning_examples_swap # IDK if we should actually use this...
+    code_repair_spreadsheet_alt_color_reasoning_examples_swap  # IDK if we should actually use this...
     # code_repair_spreadsheet_alt_color_reasoning_examples_alt_shorter
 )
 
@@ -301,14 +252,12 @@ code_repair_reasoning_examples_w_outputs_change_alt_color = [
 
 # %%
 
-# exclude_names_alt = set()
-exclude_names_alt = {x for x, _ in reasoning_labeled_items}.union(
+exclude_names_alt = set().union(
     {x for x, _ in code_repair_spreadsheet_alt_color_reasoning_examples},
     {
         code_repair_example_3,
         code_repair_example_12_for_spreadsheet_alt_color,
     },  # exclude for legacy/cache reasons
-    {x for x, _ in code_repair_reasoning_examples},
     {x for x, _ in code_repair_reasoning_examples_change_alt_color},
     {x for x, _ in code_repair_reasoning_examples_change_alt_color_new_long},
     {x for x, _ in code_repair_reasoning_examples_change_alt_color_new_short},
@@ -329,6 +278,8 @@ exclude_names_alt = {x for x, _ in reasoning_labeled_items}.union(
     {x for x, _ in reasoning_labeled_change_spreadsheet_prompt_alt_color},
     {x for x, _ in reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff},
     {x for x, _ in reasoning_labeled_change_prompt_alt_color_another_alt_prompt},
+    {x for item in all_perm_reasoning_change_alt_color_prompt_merge for x, _ in item},
+    {x for item in all_perm_reasoning_concise_diff_prompt_merge for x, _ in item},
     # these excluded because they sometimes trigger content filtering!?! (NOTE: just from train set, not val set)
     {
         "50846271.json",
@@ -378,48 +329,65 @@ else:
         names_alt = names_alt[-100:]
 
 
+# names_alt = [x for x in names_alt if is_eq_size_item(x)]
+
 len(names_alt)
+
 # %%
 
-prompt_settings = [
-    # V0
-    # PromptArgs(
-    #     name="default", display_args=DisplayArgs(), legacy_color_to_index=True
-    # ),
-    # # V1.0
-    # PromptArgs(
-    #     name="use_spreadsheet_or_change_prompt",
-    #     display_args=DisplayArgs(
-    #         spreadsheet_ascii=True,
-    #         spreadsheet_ascii_full=True,
-    #         render_args=RenderArgs(
-    #             use_alt_color_scheme=True,
-    #         ),
-    #     ),
-    #     use_spreadsheet_if_eq_size_and_change_prompt_otherwise=True,
-    # ),
-    # # V1.1
-    # PromptArgs(
-    #     name="use_spreadsheet_or_change_prompt_alts",
-    #     display_args=DisplayArgs(
-    #         spreadsheet_ascii=True,
-    #         spreadsheet_ascii_full=True,
-    #         render_args=RenderArgs(
-    #             use_alt_color_scheme=True,
-    #         ),
-    #         max_allowed_tokens_full_ascii_grid=300,
-    #     ),
-    #     force_reasoning_labeled_items_spreadsheet_ascii=tuple(
-    #         reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard_alt
-    #     ),
-    #     force_reasoning_labeled_items_change_prompt=tuple(
-    #         reasoning_labeled_change_prompt_alt_color_total_alternative_prompt
-    #     ),
-    #     use_spreadsheet_if_eq_size_and_change_prompt_otherwise=True,
-    # ),
-    # V2
+
+# args = PromptArgs(
+#     name="use_spreadsheet_or_change_concise_diff",
+#     display_args=DisplayArgs(
+#         spreadsheet_ascii=True,
+#         spreadsheet_ascii_full=True,
+#         render_args=RenderArgs(
+#             use_alt_color_scheme=True,
+#         ),
+#         max_allowed_tokens_full_ascii_grid=300,
+#         spreadsheet_ascii_show_diff_if_concise=True,
+#     ),
+#     force_reasoning_labeled_items_spreadsheet_ascii=tuple(
+#         reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
+#     ),
+#     force_reasoning_labeled_items_change_prompt=tuple(
+#         reasoning_labeled_change_prompt_alt_color_another_alt_prompt
+#     ),
+#     use_spreadsheet_if_eq_size_and_change_prompt_otherwise=True,
+#     shuffle_example_order_with_permutation_index=0,
+# )
+
+# this_name = names_alt[0]
+
+# prompt_args_here = process_prompt_args_for_name(this_name, args)
+
+# this_prompt = list(make_prompt_alt(prompt_args_here))
+# this_prompt.append(
+#     {
+#         "role": "user",
+#         "content": get_rule_input_alt(
+#             this_name,
+#             display_args=prompt_args_here.display_args,
+#             shuffle_example_order_with_permutation_index=prompt_args_here.shuffle_example_order_with_permutation_index,
+#         ),
+#     }
+# )
+
+# with open("out_prompt.txt", "w") as f:
+#     with contextlib.redirect_stdout(f):
+#         print_prompt(this_prompt, show_images=True)
+
+# %%
+# 10*9*8*7*6*5*4*3*2*1
+
+# min(len(x["train"]) for x in out_data_by_name_d.values())
+
+# %%
+
+
+prompt_settings_all = [
     PromptArgs(
-        name="use_spreadsheet_or_change_concise_diff",
+        name=f"use_spreadsheet_or_change_concise_diff_{i}",
         display_args=DisplayArgs(
             spreadsheet_ascii=True,
             spreadsheet_ascii_full=True,
@@ -429,26 +397,33 @@ prompt_settings = [
             max_allowed_tokens_full_ascii_grid=300,
             spreadsheet_ascii_show_diff_if_concise=True,
         ),
-        use_moderate_long_run_dots_in_system=True,
         force_reasoning_labeled_items_spreadsheet_ascii=tuple(
-            reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
+            all_perm_reasoning_concise_diff_prompt_merge[i]
         ),
         force_reasoning_labeled_items_change_prompt=tuple(
-            reasoning_labeled_change_prompt_alt_color_another_alt_prompt
+            all_perm_reasoning_change_alt_color_prompt_merge[i]
         ),
         use_spreadsheet_if_eq_size_and_change_prompt_otherwise=True,
-    ),
+        shuffle_example_order_with_permutation_index=None if i == 0 else i,
+    )
+    for i in range(18)
 ]
+name_to_prompt_settings = {x.name: x for x in prompt_settings_all}
+
+# is_small_run = False
+is_small_run = True
 
 
 async def run_all_alt():
-    # n = 1024
-    # n_by_key = {"use_spreadsheet_or_change_concise_diff": 2048}
+    total_n = 192 if is_small_run else 1024
+    n_per = 64 if is_small_run else 128
+    n_per_by_key = None
+    assert n_per_by_key is None
+    assert (total_n % n_per) == 0
+    count = total_n // n_per
+    print(f"{count=}")
 
-    # n = 256
-    n = 256
-    n_by_key = None
-
+    settings_here = prompt_settings_all[:count]
 
     out: list[tuple[str, PromptArgs, float, Optional[list[str]]]] = (
         await tqdm_asyncio.gather(
@@ -456,7 +431,11 @@ async def run_all_alt():
                 run_on_input_with_name_alt(
                     name,
                     t=0.95,
-                    n=n if n_by_key is None else n_by_key.get(prompt_args.name, n),
+                    n=(
+                        n_per
+                        if n_per_by_key is None
+                        else n_per_by_key.get(prompt_args.name, n_per)
+                    ),
                     prompt_args=prompt_args,
                     max_n_per_round=48,  # avoid openai errors
                     max_n_map_if_greater=[
@@ -477,7 +456,7 @@ async def run_all_alt():
                     # ),
                     dry_run=False,
                 )
-                for prompt_args in prompt_settings
+                for prompt_args in settings_here
                 for name in names_alt
             ]
         )
@@ -711,6 +690,7 @@ lim_k = 100000000
 
 # %%
 
+# [len(out_data_by_name_d[name]["test"]) for name in names_alt]
 
 # %%
 
@@ -741,11 +721,70 @@ print(f"{initial_corr_lim_k=}")
 # print(f"{compare_prompts_fixed_k_corr_vals=}")
 
 # %%
+import tiktoken
+
+tokenizer = tiktoken.encoding_for_model("gpt-4o")
+
+total_output_tokens = sum(
+    len(tokenizer.encode(reasoning))
+    for _, items in eval_out_dict_main.items()
+    for _, sub_items in items.items()
+    for _, reasoning in sub_items
+)
+# * 1.5 is for input also.
+estim_cost_before_fix = (total_output_tokens / 1_000_000) * 15 * 1.5
+print(f"{estim_cost_before_fix=}")
+
+# %%
+
+# output, reasoning = eval_out_dict_main["use_spreadsheet_or_change_concise_diff_0"][
+#     "46442a0e.json"
+# ][0]
+
+# print(reasoning)
+
+# orig_args = name_to_prompt_settings["use_spreadsheet_or_change_concise_diff_0"]
+# which_shuffle = orig_args.shuffle_example_order_with_permutation_index
+
+# prompt_args = PromptArgs(
+#     name="alt_color_change",
+#     display_args=DisplayArgs(
+#         render_args=RenderArgs(
+#             use_alt_color_scheme=True,
+#         ),
+#     ),
+#     shuffle_example_order_with_permutation_index=which_shuffle,
+# )
+
+# kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
+
+# examples = code_repair_reasoning_examples_w_outputs_change_alt_color
+
+# # %%
+
+# prompt_args_new, examples_new, kwargs_new = get_fix_prompt_args_examples_for_key_name("use_spreadsheet_or_change_concise_diff_0", "46442a0e.json")
+# assert prompt_args_new == prompt_args
+# assert kwargs_new == kwargs
+# assert examples_new == examples
+
+# # %%
+
+# this_prompt = list(
+#     make_all_fix_prompt_alt(
+#         examples_new + [("46442a0e.json", [(reasoning, output)])],
+#         args=prompt_args_new,
+#         use_next_prompt=True,
+#         use_explicit_start=False,
+#         use_output_diff=kwargs_new["use_output_diff"],
+#         use_if_fix_fail_line=kwargs_new["use_if_fix_fail_line"],
+#     )
+# )
+# print_prompt(this_prompt, show_images=True)
 
 
 # %% [markdown]
 
-# # fancy shit, not most of action
+# # fixing
 
 # %%
 
@@ -766,7 +805,7 @@ for k, vs in filt_has_all_train_corr.items():
 names_all_issues = [
     name
     for name, count_train_corr in total_all_train_corr_by_name.items()
-    if count_train_corr <= 32
+    if count_train_corr <= (2 if is_small_run else 4)
     # if count_train_corr <= 0
 ]
 names_no_train_corr = [
@@ -782,57 +821,56 @@ len(names_all_issues), len(names_no_train_corr)
 
 
 def get_fix_prompt_args_examples_for_key_name(key: str, name: str):
-    if "use_spreadsheet_or_change" in key:
-        if is_eq_size_item(name):
-            prompt_args = PromptArgs(
-                name="use_spreadsheet_or_change_prompt",
-                display_args=DisplayArgs(
-                    spreadsheet_ascii=True,
-                    spreadsheet_ascii_full=True,
-                    render_args=RenderArgs(
-                        use_alt_color_scheme=True,
-                    ),
-                    max_allowed_tokens_full_ascii_grid=300,
-                    spreadsheet_ascii_show_diff_if_concise=True,
+    prompt_settings = name_to_prompt_settings[key]
+    assert prompt_settings.display_args.spreadsheet_ascii
+    assert prompt_settings.display_args.spreadsheet_ascii_full
+    assert prompt_settings.display_args.render_args.use_alt_color_scheme
+    assert prompt_settings.display_args.spreadsheet_ascii_show_diff_if_concise
+    assert prompt_settings.use_spreadsheet_if_eq_size_and_change_prompt_otherwise
+
+    which_shuffle = prompt_settings.shuffle_example_order_with_permutation_index
+    print(f"{which_shuffle=} {key=}")
+
+    if is_eq_size_item(name):
+        prompt_args = PromptArgs(
+            name="use_spreadsheet_or_change_prompt",
+            display_args=DisplayArgs(
+                spreadsheet_ascii=True,
+                spreadsheet_ascii_full=True,
+                render_args=RenderArgs(
+                    use_alt_color_scheme=True,
                 ),
-                use_moderate_long_run_dots_in_system=True,
-                use_spreadsheet_if_eq_size_and_change_prompt_otherwise=False,
-            )
+                max_allowed_tokens_full_ascii_grid=300,
+                spreadsheet_ascii_show_diff_if_concise=True,
+            ),
+            use_spreadsheet_if_eq_size_and_change_prompt_otherwise=False,
+            shuffle_example_order_with_permutation_index=which_shuffle,
+        )
 
-            kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
-            return (
-                prompt_args,
-                code_repair_reasoning_examples_w_outputs_spreadsheet_alt_color,
-                kwargs,
-            )
-        else:
-            prompt_args = PromptArgs(
-                name="alt_color_change",
-                display_args=DisplayArgs(
-                    render_args=RenderArgs(
-                        use_alt_color_scheme=True,
-                    ),
-                ),
-            )
-
-            kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
-
-            return (
-                prompt_args,
-                code_repair_reasoning_examples_w_outputs_change_alt_color,
-                kwargs,
-            )
-    elif key == "default":
         kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
         return (
-            PromptArgs(
-                name="default", display_args=DisplayArgs(), legacy_color_to_index=True
-            ),
-            code_repair_reasoning_examples_w_outputs,
+            prompt_args,
+            code_repair_reasoning_examples_w_outputs_spreadsheet_alt_color,
             kwargs,
         )
     else:
-        assert False
+        prompt_args = PromptArgs(
+            name="alt_color_change",
+            display_args=DisplayArgs(
+                render_args=RenderArgs(
+                    use_alt_color_scheme=True,
+                ),
+            ),
+            shuffle_example_order_with_permutation_index=which_shuffle,
+        )
+
+        kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
+
+        return (
+            prompt_args,
+            code_repair_reasoning_examples_w_outputs_change_alt_color,
+            kwargs,
+        )
 
 
 # %%
@@ -879,23 +917,24 @@ async def run_all_fix_items():
     # Do exponential decay with 0.75x each time
     # (1/2 also worked well.)
 
-    target_total_n = 128
-    # target_total_n = 3072
+    if is_small_run:
+        ns = [64, 32]
+    else:
+        target_total_n = 512
+        multiplier = 3 / 4
 
-    multiplier = 3 / 4
+        initial_val = target_total_n * (1 - multiplier)
 
-    initial_val = target_total_n * (1 - multiplier)
+        def round_to_nearest_32(x: float) -> int:
+            return int(32 * round(x / 32))
 
-    def round_to_nearest_32(x: float) -> int:
-        return int(32 * round(x / 32))
-
-    ns: list[int] = []
-    for i in range(1000):
-        here = initial_val * multiplier**i
-        round_nearest = round_to_nearest_32(here)
-        if round_nearest == 0:
-            break
-        ns.append(round_nearest)
+        ns: list[int] = []
+        for i in range(1000):
+            here = initial_val * multiplier**i
+            round_nearest = round_to_nearest_32(here)
+            if round_nearest == 0:
+                break
+            ns.append(round_nearest)
 
     print(f"{sum(ns)=} {ns=}")
 
@@ -934,16 +973,6 @@ async def run_all_fix_items():
                 weight_on_further_from_best_so_far=min(
                     0.01 * len(ns), 0.25
                 ),  # Maybe should also depend on n.
-                extra_scores=[
-                    (
-                        # -15 and -5 are just from eyeballing. Corresponds to some number of ranks up. Just a priori reasoning (and looking at distribution of scores), not optimized.
-                        -15
-                        if "use_spreadsheet_or_change_concise_diff" == key
-                        and is_eq_size_item(name)
-                        else (-5 if "spreadsheet" in key else 0)
-                    )
-                    for _, _, key in all_run_items_w_keys
-                ],
                 print_scores=False,
             )
         ):

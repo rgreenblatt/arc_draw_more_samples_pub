@@ -7,8 +7,9 @@ import contextlib
 from typing import Any, Callable, Optional, TypeVar
 import base64
 import asyncio
-from scipy.ndimage import label
+import itertools
 
+from scipy.ndimage import label
 import attrs
 import numpy as np
 import openai
@@ -20,6 +21,7 @@ from rrutils.llm_api.base_llm import ContextLengthExceeded
 nest_asyncio.apply()
 
 
+from arc_solve.permutations import all_permutation_indices
 from arc_solve.edit_distance import get_rank_geo_mean_score
 from rrutils.llm_api.llm import ModelAPI
 from arc_solve.render import (
@@ -39,12 +41,9 @@ from arc_solve.run_programs import (
 )
 from arc_solve.load_data import out_data_by_name_d
 from arc_solve.reasoning_and_labels import (
-    reasoning_labeled_items,
     reasoning_labeled_items_alt_color,
     reasoning_labeled_items_full_spreadsheet_alt_color,
     reasoning_labeled_change_prompt_alt_color_add_swap,
-    reasoning_labeled_items_ascii,
-    code_repair_reasoning_examples,
 )
 
 if "ANTHROPIC_API_KEY" not in os.environ:
@@ -120,8 +119,6 @@ async def call_anthropic(
 
 
 def get_alternative_system_prompt(
-    skip_image: bool = False,
-    skip_ascii: bool = False,
     use_diff_highlight: bool = False,
     use_diff_triangles: bool = False,
     additional_info: bool = False,
@@ -129,35 +126,21 @@ def get_alternative_system_prompt(
     just_attributes_additional_info: bool = False,
     use_many_ascii_representations: bool = False,
     use_alt_color_scheme: bool = False,
-    legacy_color_to_index: bool = False,
     disable_absolute_in_normalized_ascii: bool = False,
     long_as_you_want: bool = False,
     use_diff_rep: bool = False,
-    use_moderate_long: bool = False,
-    use_legacy_diff_typo_quote: bool = True,
-    allow_comma_after_etc_typo_fix: bool = False,
 ):
     scheme = (
         alt_color_scheme_consts_name
         if use_alt_color_scheme
         else color_scheme_consts_name
     )
-    if legacy_color_to_index:
-        color_to_index = ", ".join(
-            # really should be capitalized, but for legacy cache support...
-            f"{color_val}: {name.capitalize()}"
-            for color_val, name in enumerate((scheme).values())
-        )
-    else:
-        color_to_index = ", ".join(
-            # really should be capitalized, but for legacy cache support...
-            f"{name}: {color_val}"
-            for color_val, name in enumerate((scheme).values())
-        )
+
+    color_to_index = ", ".join(
+        f"{name}: {color_val}" for color_val, name in enumerate((scheme).values())
+    )
 
     many_ascii_rep_and_image_version_of_input_line = f"""The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as images and in various ASCII representations. The image and the ASCII representations for each input/output contain the same information: we just show both representations for convenience and ease of understanding. Each number corresponds to a color in the image. The correspondence is as follows: {color_to_index}."""
-
-    many_ascii_rep_and_skip_image_version_of_input_line = f"""The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you in various ASCII representations. Each number corresponds to a color. The correspondence is as follows: {color_to_index}."""
 
     abs_in_normalized_ascii_desc = """\n\nFor each shape, we indicate the non-normalized location of one cell in the grid (the first cell per shape in the prior representation) using [Absolute: LOCATION]. This is to make it easy to correspond to the prior representation and to give each shape a unique identification. We only show the absolute representation for shapes with more than 2 cells to save space."""
 
@@ -165,8 +148,7 @@ def get_alternative_system_prompt(
         abs_in_normalized_ascii_desc = ""
 
     # TODO: there is an extra '"' here due to a typo. Can't always fix due to cache.
-    legacy_diff_quote = '"' if use_legacy_diff_typo_quote else ""
-    diff_rep = f"""{legacy_diff_quote}\n\n### Color changes between the input grid and the output grid
+    diff_rep = f"""\n\n### Color changes between the input grid and the output grid
 
 This shows the difference between an input grid and an output grid as a list of the locations where one color changes to another. For instance, if {scheme[0]} changes to {scheme[2]} at A1 A2 B7, this would be represented as "{scheme[0]} (0) to {scheme[2]} (2): A1 A2 B7".
 
@@ -175,19 +157,15 @@ We will use the '...' notation as described earlier when applicable."""
     if not use_diff_rep:
         diff_rep = ""
 
-    include_moderately_long = "moderately long " if use_moderate_long else ""
-
-    comma_after_etc = "," if allow_comma_after_etc_typo_fix else ""
-
     ascii_rep_desc = f"""Here are descriptions of each of the different ASCII representations we will provide:
 
 ### Color by location representation
 
-This is a grid of elements separated by '|'. For each element, we provide the color as a number and the location (in that order). Locations are denoted like A7 or D3, where columns are denoted with A, B, C, etc.{comma_after_etc} and rows are denoted with 1, 2, 3, etc. So, D3 corresponds to the cell in the 4th column and the 3rd row. Note that rows are 1-indexed.
+This is a grid of elements separated by '|'. For each element, we provide the color as a number and the location (in that order). Locations are denoted like A7 or D3, where columns are denoted with A, B, C, etc., and rows are denoted with 1, 2, 3, etc. So, D3 corresponds to the cell in the 4th column and the 3rd row. Note that rows are 1-indexed.
 
 ### Location by color representation
 
-This is a mapping from colors to the locations at which that color occurs. We use 'XR ... YR' to denote that row R is occupied from X to Y (inclusive). For instance, 'C5 ... G5' would correspond to 'C5 D5 E5 F5 G5'. We only use this '...' notation for {include_moderately_long}contiguous runs of cells in a row. We don't use this notation for columns.
+This is a mapping from colors to the locations at which that color occurs. We use 'XR ... YR' to denote that row R is occupied from X to Y (inclusive). For instance, 'C5 ... G5' would correspond to 'C5 D5 E5 F5 G5'. We only use this '...' notation for moderately long contiguous runs of cells in a row. We don't use this notation for columns.
 
 We also separate the list into connected components (shapes). Each shape/component is separated by '|'.
 
@@ -202,17 +180,13 @@ Now we're done going through the descriptions of the different ASCII representat
 
     image_version_of_input_line = f'The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as both images and grids of numbers (ASCII). The image and the grid of numbers for each input/output contain the same information: we just show both representations for convenience. Each number corresponds to a color in the image. The correspondence is as follows: {color_to_index}.'
 
-    non_image_version_of_line = f'The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown as grids of numbers (just ASCII).'
-
-    pure_image_version_of_input_line = f'The inputs and outputs are each "grids". A grid is a rectangular matrix of integers between 0 and 9 (inclusive). These grids will be shown to you as images. Each color in the image corresponds to a number. The correspondence is as follows: {color_to_index}.'
-
     maybe_diff_highlight_line = "\n\nWhen the input and output grids have identical dimensions and share the same color in more than 60% of their cells, we will display an additional version of both the input and output grids with cells that differ highlighted using a red border. This highlighting is to help you easily identify the differences between the input and output grids."
 
     maybe_diff_triangles_line = "\n\nWhen the input and output grids have identical dimensions and share the same color in more than 60% of their cells, we will display an additional image which shows the input color in the upper left triangle of the cell and the output color in the lower right triangle of the cell. Correspondingly, cells which are all one color (the upper triangle and lower triangle are the same color) are cells where the input and the output grids have the same color. This visualization is to help you easily identify and understand the differences between the input and output grids."
 
     additional_info_line_reasoning = """You follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.
 
-You reason in substantial detail for as is necessary to determine the transformation rule."""
+You reason in substantial detail for as long as is necessary to determine the transformation rule."""
 
     no_need_conside_as_long = "\n\nYour reasoning **can be as long as necessary**! The goal of the reasoning is just to make sure you end up with a correct implementation of the transformation rule, so **there isn't any need for your reasoning to be concise**. You should do any and all reasoning that would be useful."
 
@@ -234,45 +208,32 @@ You reason in substantial detail for as is necessary to determine the transforma
         assert additional_info
 
     if use_many_ascii_representations:
-        assert not skip_ascii
-        if skip_image:
-            input_line = many_ascii_rep_and_skip_image_version_of_input_line
-        else:
-            input_line = many_ascii_rep_and_image_version_of_input_line
+        input_line = many_ascii_rep_and_image_version_of_input_line
 
         input_line += "\n\n" + ascii_rep_desc
-    elif skip_image:
-        assert not skip_ascii
-        input_line = non_image_version_of_line
-    elif skip_ascii:
-        input_line = pure_image_version_of_input_line
     else:
         input_line = image_version_of_input_line
 
     if not use_diff_highlight:
         maybe_diff_highlight_line = ""
-    else:
-        assert not skip_image
 
     if not use_diff_triangles:
         maybe_diff_triangles_line = ""
-    else:
-        assert not skip_image
 
     if not additional_info:
         additional_info_line = ""
 
-    alternative_system_prompt_text = f"""You will given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also one additional input without a known output. Your task is to determine the transformation rule and implement it in code.
+    alternative_system_prompt_text = f"""You will be given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also an additional input without a known output (or possibly multiple additional inputs). Your task is to determine the transformation rule and implement it in code.
 
 {input_line}{maybe_diff_highlight_line}{maybe_diff_triangles_line}
 
-The transformation only needs to be unambiguous and applicable to the example inputs and the additional input. It doesn't need to work for all possible inputs.
+The transformation only needs to be unambiguous and applicable to the example inputs, the additional input(s), and other inputs which have the same properties as these inputs. It doesn't need to work for all possible inputs.
 
 You'll need to carefully reason in order to determine the transformation rule. Start your response by carefully reasoning in <reasoning></reasoning> tags. Then, implement the transformation in code.
 
-After your reasoning write code in triple backticks (```python and then ```). You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should make sure that you implement a version of the transformation which works in general (it shouldn't just work for the additional input).
+After your reasoning write code in triple backticks (```python and then ```). You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).
 
-Don't write tests in your python code, just output the `transform` function. (It will be tested later.){additional_info_line}"""
+Don't write tests in your python code, just output the `transform` function.{additional_info_line}"""
 
     return [
         {
@@ -293,8 +254,6 @@ Don't write tests in your python code, just output the `transform` function. (It
 @attrs.frozen
 class DisplayArgs:
     render_args: RenderArgs = RenderArgs()
-    skip_image: bool = False
-    skip_ascii: bool = False
     use_diff_highlight: bool = False
     use_diff_triangles: bool = False
     ascii_separator: str = "|"
@@ -305,14 +264,6 @@ class DisplayArgs:
     disable_absolute_in_normalized_ascii: bool = False
     max_allowed_tokens_per_color: Optional[int] = 200
     max_allowed_tokens_full_ascii_grid: Optional[int] = None
-
-    def __attrs_post_init__(self):
-        assert not (
-            self.skip_image and self.skip_ascii
-        ), "can't skip both image and ascii"
-
-        if self.use_diff_highlight:
-            assert not self.skip_image, "can't use diff without image"
 
 
 # %%
@@ -427,7 +378,6 @@ def get_spreadsheet_notation_support_runs(rows_cols: list[tuple[int, int]]):
             idx += 1
 
     return running_str
-
 
 
 def find_contiguous_shapes(grid, color):
@@ -668,8 +618,6 @@ def spreadsheet_ascii_grid_by_color_contiguous_absolute_small_shapes(
     return overall_out
 
 
-
-
 def ascii_grid(grid: np.ndarray, separator: str = "|", spreadsheet_ascii: bool = False):
     if spreadsheet_ascii:
         return spreadsheet_ascii_grid(grid, separator=separator)
@@ -729,15 +677,6 @@ def display_single_grid_alt(
         )
         ascii_text += f"""### Normalized shape representation (by color)\n\n{normalized_by_color_contiguous}\n\n"""
 
-    if display_args.skip_image:
-        assert not display_args.skip_ascii
-        return [
-            {
-                "type": "text",
-                "text": shape_text + ascii_text,
-            },
-        ]
-
     out = [
         {
             "type": "text",
@@ -745,15 +684,11 @@ def display_single_grid_alt(
             + ("### Image representation\n\n" if use_header_text else ""),
         },
         grid_to_base64_png_oai_content(grid, render_args=display_args.render_args),
+        {
+            "type": "text",
+            "text": ascii_text,
+        },
     ]
-
-    if not display_args.skip_ascii:
-        out.append(
-            {
-                "type": "text",
-                "text": ascii_text,
-            }
-        )
 
     return out
 
@@ -904,9 +839,6 @@ def display_wrong_output_alt(
 
     has_some_invalid = any(not (0 <= x <= 9) for row in item for x in row)
 
-    assert not display_args.skip_image
-    assert not display_args.skip_ascii
-
     invalid_text = "Note that the output contains some invalid values (values that are not between 0 and 9 inclusive). These invalid values are incorrect and will need to be fixed. Invalid values are displayed in white in the image representation and the actual (invalid) value is displayed in the ASCII representation.\n\n"
     if not has_some_invalid:
         invalid_text = ""
@@ -973,6 +905,7 @@ def fix_prompt(
     attempt_num: int = 0,
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
+    shuffle_example_order_with_permutation_index: Optional[int] = None,
 ):
     attempt_str = (
         f" (This is attempt {attempt_num + 1} at fixing the code.)"
@@ -1032,6 +965,24 @@ You'll need to carefully reason to determine the issue and to determine how to f
 
     assert len(exs) == len(run_output.train_results)
 
+    wrong_results_to_show = list(
+        zip(
+            run_output.train_results,
+            exs,
+            run_output.train_stdout_stderr,
+        )
+    )
+
+    if shuffle_example_order_with_permutation_index is not None:
+        assert len(wrong_results_to_show) > 1
+        these_indices = all_permutation_indices[len(wrong_results_to_show)]
+        wrong_results_to_show = [
+            wrong_results_to_show[i]
+            for i in these_indices[
+                shuffle_example_order_with_permutation_index % len(these_indices)
+            ]
+        ]
+
     transform_outputs = sum(
         [
             display_wrong_output_alt(
@@ -1043,11 +994,7 @@ You'll need to carefully reason to determine the issue and to determine how to f
                 use_output_diff=use_output_diff,
             )
             for i, (actual_output, ex, stdout_stderr) in enumerate(
-                zip(
-                    run_output.train_results,
-                    exs,
-                    run_output.train_stdout_stderr,
-                )
+                wrong_results_to_show
             )
         ],
         [],
@@ -1077,8 +1024,21 @@ Once you are done reasoning, rewrite the code to fix the issue. Return the code 
     ]
 
 
-def get_rule_input_alt(name: str, display_args: DisplayArgs = DisplayArgs()):
-    exs = out_data_by_name_d[name]["train"]
+def get_rule_input_alt(
+    name: str,
+    display_args: DisplayArgs = DisplayArgs(),
+    shuffle_example_order_with_permutation_index: Optional[int] = None,
+):
+    exs = list(out_data_by_name_d[name]["train"]).copy()  # yes, copy is redundant
+    if shuffle_example_order_with_permutation_index is not None:
+        assert len(exs) > 1
+        these_indices_ex = all_permutation_indices[len(exs)]
+        exs = [
+            exs[i]
+            for i in these_indices_ex[
+                shuffle_example_order_with_permutation_index % len(these_indices_ex)
+            ]
+        ]
 
     start = []
 
@@ -1090,7 +1050,20 @@ def get_rule_input_alt(name: str, display_args: DisplayArgs = DisplayArgs()):
         [],
     )
 
-    test = out_data_by_name_d[name]["test"]
+    test = list(out_data_by_name_d[name]["test"]).copy()
+    if shuffle_example_order_with_permutation_index is not None and len(test) > 1:
+        these_indices_test = all_permutation_indices[len(test)]
+        test = [
+            test[i]
+            for i in these_indices_test[
+                (
+                    len(these_indices_test)
+                    - 1
+                    - shuffle_example_order_with_permutation_index
+                )
+                % len(these_indices_test)
+            ]
+        ]
 
     for test_idx, t in enumerate(test):
         test_idx_str = "" if len(test) == 1 else f" ({test_idx + 1})"
@@ -1127,14 +1100,11 @@ class PromptArgs:
     force_reasoning_labeled_items_change_prompt: Optional[
         tuple[tuple[str, str], ...]
     ] = None
-    legacy_color_to_index: bool = False
     emphasize_long_in_system: bool = False
-    use_moderate_long_run_dots_in_system: bool = False
+    shuffle_example_order_with_permutation_index: Optional[int] = None
 
     def __attrs_post_init__(self):
         if self.use_spreadsheet_if_eq_size_and_change_prompt_otherwise:
-            assert not self.display_args.skip_image
-            assert not self.display_args.skip_ascii
             assert self.display_args.spreadsheet_ascii
             assert self.display_args.spreadsheet_ascii_full
             assert self.display_args.render_args.use_alt_color_scheme
@@ -1152,8 +1122,6 @@ def make_prompt_alt(
     ), "this needs to be handled at an earlier stage!"
     basic_prompt = list(
         get_alternative_system_prompt(
-            skip_image=args.display_args.skip_image,
-            skip_ascii=args.display_args.skip_ascii,
             use_diff_highlight=args.display_args.use_diff_highlight,
             use_diff_triangles=args.display_args.use_diff_triangles,
             additional_info=args.additional_info_in_system,
@@ -1161,11 +1129,9 @@ def make_prompt_alt(
             just_attributes_additional_info=args.just_attributes_additional_info_in_system,
             use_many_ascii_representations=args.display_args.spreadsheet_ascii_full,
             use_alt_color_scheme=args.display_args.render_args.use_alt_color_scheme,
-            legacy_color_to_index=args.legacy_color_to_index,
             disable_absolute_in_normalized_ascii=args.display_args.disable_absolute_in_normalized_ascii,
             long_as_you_want=args.emphasize_long_in_system,
             use_diff_rep=args.display_args.spreadsheet_ascii_show_diff_if_concise,
-            use_moderate_long=args.use_moderate_long_run_dots_in_system,
         )
     )
 
@@ -1183,11 +1149,7 @@ def make_prompt_alt(
     else:
         assert not args.display_args.render_args.use_alt_color_scheme
         assert not args.display_args.spreadsheet_ascii_full
-        reasoning_labeled_items_here = (
-            reasoning_labeled_items
-            if not args.display_args.skip_image
-            else reasoning_labeled_items_ascii
-        )
+        assert False
 
     for name, reasoning in reasoning_labeled_items_here:
         basic_prompt.append(
@@ -1218,6 +1180,7 @@ def make_fix_prompt_item(
     use_explicit_start: bool = False,
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
+    shuffle_example_order_with_permutation_index: Optional[int] = None,
 ):
     return make_fix_prompt_item_uncache(
         name=name,
@@ -1230,6 +1193,7 @@ def make_fix_prompt_item(
         use_explicit_start=use_explicit_start,
         use_output_diff=use_output_diff,
         use_if_fix_fail_line=use_if_fix_fail_line,
+        shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
     )
 
 
@@ -1241,6 +1205,7 @@ def make_fix_prompt_item_uncache(
     use_explicit_start: bool = False,
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
+    shuffle_example_order_with_permutation_index: Optional[int] = None,
 ):
     (initial_reasoning, initial_run_output), *all_fix_reasoning = (
         all_reasoning_and_outputs
@@ -1260,7 +1225,11 @@ def make_fix_prompt_item_uncache(
         {
             "role": "user",
             "content": additional_for_prompt
-            + get_rule_input_alt(name, display_args=display_args),
+            + get_rule_input_alt(
+                name,
+                display_args=display_args,
+                shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
+            ),
         },
         {
             "role": "assistant",
@@ -1277,6 +1246,7 @@ def make_fix_prompt_item_uncache(
                 attempt_num=0,
                 use_output_diff=use_output_diff,
                 use_if_fix_fail_line=use_if_fix_fail_line,
+                shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
             ),
         },
     ]
@@ -1303,6 +1273,7 @@ def make_fix_prompt_item_uncache(
                         attempt_num=idx + 1,
                         use_output_diff=use_output_diff,
                         use_if_fix_fail_line=use_if_fix_fail_line,
+                        shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
                     ),
                 },
             )
@@ -1320,8 +1291,6 @@ def make_all_fix_prompt_alt(
 ):
     prompt = list(
         get_alternative_system_prompt(
-            skip_image=args.display_args.skip_image,
-            skip_ascii=args.display_args.skip_ascii,
             use_diff_highlight=args.display_args.use_diff_highlight,
             use_diff_triangles=args.display_args.use_diff_triangles,
             additional_info=args.additional_info_in_system,
@@ -1329,11 +1298,9 @@ def make_all_fix_prompt_alt(
             just_attributes_additional_info=args.just_attributes_additional_info_in_system,
             use_many_ascii_representations=args.display_args.spreadsheet_ascii_full,
             use_alt_color_scheme=args.display_args.render_args.use_alt_color_scheme,
-            legacy_color_to_index=args.legacy_color_to_index,
             disable_absolute_in_normalized_ascii=args.display_args.disable_absolute_in_normalized_ascii,
             long_as_you_want=args.emphasize_long_in_system,
             use_diff_rep=args.display_args.spreadsheet_ascii_show_diff_if_concise,
-            use_moderate_long=args.use_moderate_long_run_dots_in_system,
         )
     )
 
@@ -1341,7 +1308,8 @@ def make_all_fix_prompt_alt(
     # assert not args.display_args.render_args.use_alt_color_scheme
     # assert not args.display_args.spreadsheet_ascii_full
 
-    assert not args.display_args.skip_image, "not supported"
+    if args.shuffle_example_order_with_permutation_index is not None:
+        assert use_next_prompt
 
     for idx, (name, all_reasoning_and_outputs) in enumerate(
         items_all_reasoning_and_outputs
@@ -1361,6 +1329,11 @@ def make_all_fix_prompt_alt(
                 use_explicit_start=use_explicit_start,
                 use_output_diff=use_output_diff,
                 use_if_fix_fail_line=use_if_fix_fail_line,
+                shuffle_example_order_with_permutation_index=(
+                    args.shuffle_example_order_with_permutation_index
+                    if is_last
+                    else None
+                ),
             )
         )
 
@@ -1493,6 +1466,7 @@ async def run_on_input_alt(
             "content": get_rule_input_alt(
                 name,
                 display_args=prompt_args_here.display_args,
+                shuffle_example_order_with_permutation_index=prompt_args_here.shuffle_example_order_with_permutation_index,
             ),
         }
     )
