@@ -1,17 +1,17 @@
 # %%
-import os
+# import os
 
-# %%
+# # %%
 
-os.environ["REDIS_READER_PORT"] = "6381"
-os.environ["INPUT_JSON"] = "./arc-agi_evaluation_challenges.json"
-os.environ["INPUT_TRAIN_JSON"] = "./arc-agi_training_challenges.json"
-os.environ["INPUT_JSON_SOLUTIONS"] = (
-    "./arc-agi_evaluation_solutions.json"  # NOTE: it is allowed for this to be unset or invalid
-)
-os.environ["RUN_FULL_SAMPLES"] = "0"
+# os.environ["REDIS_READER_PORT"] = "6381"
+# os.environ["INPUT_JSON"] = "./arc-agi_evaluation_challenges.json"
+# os.environ["INPUT_TRAIN_JSON"] = "./arc-agi_training_challenges.json"
+# os.environ["INPUT_JSON_SOLUTIONS"] = (
+#     "./arc-agi_evaluation_solutions.json"  # NOTE: it is allowed for this to be unset or invalid
+# )
+# os.environ["RUN_FULL_SAMPLES"] = "0"
 
-os.environ["RUN_ON_SUBSET"] = "100"  # optional integer
+# os.environ["RUN_ON_SUBSET"] = "100"  # optional integer
 
 # os.environ["BAN_UNCACHED_LLM_QUERIES"] = "1"
 
@@ -836,6 +836,21 @@ submission_dict = make_submission_dict(
     all_fully_merged_eval,
     n_to_submit=ALLOWED_ATTEMPTS,
 )
+
+# %%
+
+import tiktoken
+
+tokenizer = tiktoken.encoding_for_model("gpt-4o")
+
+total_output_tokens = sum(
+    len(tokenizer.encode(reasoning))
+    for _, sub_items in all_fully_merged_eval.items()
+    for _, reasoning in sub_items
+)
+# * 1.5 is for input also.
+estim_cost_total = (total_output_tokens / 1_000_000) * 15 * 1.5
+print(f"{estim_cost_total=}")
 
 # %%
 
