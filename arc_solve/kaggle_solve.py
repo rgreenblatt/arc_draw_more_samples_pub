@@ -21,10 +21,12 @@
 
 import math
 from collections import defaultdict
+import contextlib
 import os
 import json
 import random
 from typing import Any, Callable, Optional, TypeVar
+import itertools
 import asyncio
 
 
@@ -39,7 +41,13 @@ from arc_solve.prompting import (
     DisplayArgs,
     PromptArgs,
     fix_on_input,
+    get_alternative_system_prompt,
+    get_rule_input_alt,
     is_eq_size_item,
+    make_all_fix_prompt_alt,
+    make_prompt_alt,
+    print_prompt,
+    process_prompt_args_for_name,
     run_on_input_with_name_alt,
 )
 from arc_solve.submission import (
@@ -51,50 +59,21 @@ from arc_solve.run_programs import (
     KeyNameS,
     RunItem,
     RunOutput,
-    StdoutStderr,
     evaluate_funcs_with_timeout_cache,
 )
 from arc_solve.edit_distance import is_valid, select_best_k_items_in_terms_of_distance
 from arc_solve.load_data import (
     get_subset_to_run,
     out_data_by_name_d,
-    loaded_names,
 )
 from arc_solve.reasoning_and_labels import (
-    code_repair_example_4,
-    code_repair_reasoning_examples_change_alt_color,
-    code_repair_reasoning_examples_change_alt_color_new_long,
     code_repair_reasoning_examples_change_alt_color_new_long_use_diff,
-    code_repair_reasoning_examples_change_alt_color_new_short,
-    reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard,
-    reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard_alt,
-    reasoning_labeled_items_full_spreadsheet_alt_color,
-    code_repair_example_12_for_spreadsheet_alt_color,
-    reasoning_labeled_items_full_spreadsheet_alt_color_extra,
-    reasoning_labeled_items_full_spreadsheet_alt_color_extra_extra,
-    reasoning_labeled_items_full_spreadsheet_alt_color_alt,
-    reasoning_labeled_items_full_spreadsheet_alt_color_alt_again,
-    reasoning_labeled_change_spreadsheet_prompt_alt_color_add,
-    reasoning_labeled_change_spreadsheet_prompt_alt_color_add_swap,
-    reasoning_labeled_change_spreadsheet_prompt_alt_color_add_just_change,
-    reasoning_labeled_items_alt_color,
-    reasoning_labeled_change_prompt_alt_color,
-    reasoning_labeled_change_prompt_alt_color_add,
-    reasoning_labeled_change_prompt_alt_color_add_swap,
-    reasoning_labeled_change_prompt_alt_color_add_swap_again,
-    reasoning_labeled_change_prompt_alt_color_add_just_change,
-    code_repair_spreadsheet_alt_color_reasoning_examples,
     code_repair_spreadsheet_alt_color_reasoning_examples_swap,
-    code_repair_example_3,
-    code_repair_spreadsheet_alt_color_reasoning_examples_alt_shorter,
-    reasoning_labeled_change_spreadsheet_prompt_alt_color,
-    reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt,
-    reasoning_labeled_change_prompt_alt_color_total_alternative_prompt,
-    reasoning_labeled_change_prompt_alt_color_another_alt_prompt,
-    all_perm_reasoning_change_alt_color_prompt_merge,
-    all_perm_reasoning_concise_diff_prompt_merge,
-    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff,
-    # code_repair_spreadsheet_w_diff_new_alt_color_reasoning_examples,
+    basic_change_alt_color_variants,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants,
+    example_20_full_spreadsheet_reasoning_with_diff,
+    example_20_full_spreadsheet_reasoning_with_diff_use_connected_diagonal,
+    example_20_full_spreadsheet,
 )
 
 nest_asyncio.apply()
@@ -111,23 +90,10 @@ eval_out_here = asyncio.run(
                 s=s,
                 s_idx=-10,
             )
-            for name, s in reasoning_labeled_items_full_spreadsheet_alt_color
-            + reasoning_labeled_items_full_spreadsheet_alt_color_alt
-            + reasoning_labeled_items_alt_color
-            + reasoning_labeled_change_prompt_alt_color
-            + reasoning_labeled_change_prompt_alt_color_add
-            + reasoning_labeled_change_prompt_alt_color_add_swap
-            + reasoning_labeled_change_prompt_alt_color_add_just_change
-            + reasoning_labeled_change_spreadsheet_prompt_alt_color
-            + reasoning_labeled_change_spreadsheet_prompt_alt_color_add
-            + reasoning_labeled_change_spreadsheet_prompt_alt_color_add_swap
-            + reasoning_labeled_change_spreadsheet_prompt_alt_color_add_just_change
-            + reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard
-            + reasoning_labeled_items_full_spreadsheet_alt_color_fresh_hard_alt
-            + reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt
-            + reasoning_labeled_change_prompt_alt_color_total_alternative_prompt
-            + reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
-            + reasoning_labeled_change_prompt_alt_color_another_alt_prompt
+            for name, s in itertools.chain(
+                *reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants,
+                *basic_change_alt_color_variants,
+            )
         ],
         timeout=5.0,
     )
@@ -248,9 +214,105 @@ names_alt = get_subset_to_run()
 
 # %%
 
-prompt_settings_all = [
-    PromptArgs(
-        name=f"use_spreadsheet_or_change_concise_diff_{i}",
+# prompt_args = prompt_settings_all[0]
+
+# name_here = names_alt[1]
+# print(f"{is_eq_size_item(name_here)=}")
+
+# prompt_args_here = process_prompt_args_for_name(name_here, prompt_args)
+
+# this_prompt = list(make_prompt_alt(prompt_args_here))
+# this_prompt.append(
+#     {
+#         "role": "user",
+#         "content": get_rule_input_alt(
+#             name_here,
+#             display_args=prompt_args_here.display_args,
+#             shuffle_example_order_with_permutation_index=prompt_args_here.shuffle_example_order_with_permutation_index,
+#             use_multi_part_transformation_rule_hint=False,
+#         ),
+#     }
+# )
+
+# with open("out_prompt.txt", "w") as f:
+#     with contextlib.redirect_stdout(f):
+#         print_prompt(this_prompt, show_images=True)
+
+# %%
+
+# upd = make_all_fix_prompt_alt(
+#     code_repair_reasoning_examples_w_outputs_spreadsheet_alt_color,
+#     args=PromptArgs(
+#         name="use_spreadsheet_or_change_prompt",
+#         display_args=DisplayArgs(
+#             spreadsheet_ascii=True,
+#             spreadsheet_ascii_full=True,
+#             render_args=RenderArgs(
+#                 use_alt_color_scheme=True,
+#             ),
+#             max_allowed_tokens_full_ascii_grid=300,
+#             spreadsheet_ascii_show_diff_if_concise=True,
+#             connected_include_diagonals=False,
+#         ),
+#         use_spreadsheet_if_eq_size_and_change_prompt_otherwise=False,
+#         shuffle_example_order_with_permutation_index=None,
+#         just_reasoning_additional_info_in_system=True,
+#         system_use_resolve_ambiguity=False,
+#         system_use_multi_part_transformation_rule_hint=False,
+#         system_use_explain_connected=False,
+#     ),
+#     use_fix_reasoning_tags=True,
+#     use_typical_issue_text=True,
+# )
+# print_prompt(upd, show_images=True)
+
+# %%
+
+
+def concise_diff_replace_with_connected_use_diagonal(
+    x: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    for ex, reasoning in x:
+        if ex == example_20_full_spreadsheet:
+            assert reasoning == example_20_full_spreadsheet_reasoning_with_diff
+            reasoning = (
+                example_20_full_spreadsheet_reasoning_with_diff_use_connected_diagonal
+            )
+        out.append((ex, reasoning))
+
+    return out
+
+
+# %%
+
+
+def make_prompt_args(variant_idx: int) -> PromptArgs:
+    connected_include_diagonals = ((variant_idx + 1) % 3) == 0
+    use_multi_part_hint = (variant_idx % 2) == 0
+    use_explain_connected = ((variant_idx + 1) % 5) == 0
+
+    shuffle_perm = None if variant_idx == 0 else variant_idx - 1
+
+    ascii_reasoning_labeled_items = (
+        reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants[
+            variant_idx
+        ]
+    )
+
+    if connected_include_diagonals:
+        ascii_reasoning_labeled_items = (
+            concise_diff_replace_with_connected_use_diagonal(
+                ascii_reasoning_labeled_items
+            )
+        )
+
+    print(
+        f"{variant_idx=} {connected_include_diagonals=} {use_multi_part_hint=} {use_explain_connected=} {shuffle_perm=}"
+    )
+
+    return PromptArgs(
+        name=f"variant_{variant_idx}",
         display_args=DisplayArgs(
             spreadsheet_ascii=True,
             spreadsheet_ascii_full=True,
@@ -259,18 +321,26 @@ prompt_settings_all = [
             ),
             max_allowed_tokens_full_ascii_grid=300,
             spreadsheet_ascii_show_diff_if_concise=True,
+            connected_include_diagonals=connected_include_diagonals,
         ),
         force_reasoning_labeled_items_spreadsheet_ascii=tuple(
-            all_perm_reasoning_concise_diff_prompt_merge[i]
+            ascii_reasoning_labeled_items
         ),
         force_reasoning_labeled_items_change_prompt=tuple(
-            all_perm_reasoning_change_alt_color_prompt_merge[i]
+            basic_change_alt_color_variants[variant_idx]
         ),
         use_spreadsheet_if_eq_size_and_change_prompt_otherwise=True,
-        shuffle_example_order_with_permutation_index=None if i == 0 else i,
+        shuffle_example_order_with_permutation_index=shuffle_perm,
+        # arbitrary_diff=None if variant_idx == 0 else variant_idx - 1, # not needed because we vary prompt examples
+        just_reasoning_additional_info_in_system=True,
+        system_use_resolve_ambiguity=True,
+        system_use_multi_part_transformation_rule_hint=use_multi_part_hint,
+        system_use_explain_connected=use_explain_connected,
     )
-    for i in range(18)
-]
+
+
+prompt_settings_all = [make_prompt_args(variant_idx) for variant_idx in range(8)]
+
 name_to_prompt_settings = {x.name: x for x in prompt_settings_all}
 
 assert os.environ["RUN_FULL_SAMPLES"] in {"0", "1"}, "invalid RUN_FULL_SAMPLES"
@@ -278,8 +348,8 @@ assert os.environ["RUN_FULL_SAMPLES"] in {"0", "1"}, "invalid RUN_FULL_SAMPLES"
 is_small_run = os.environ["RUN_FULL_SAMPLES"] == "0"
 
 
-total_n = 256 if is_small_run else 768
-n_per = 64 if is_small_run else 128
+total_n = (32 * 6) if is_small_run else (96 * 8)
+n_per = 32 if is_small_run else 96
 n_per_by_key = None  # not currently supported
 
 
@@ -345,8 +415,6 @@ async def run_all_alt():
         for settings, vals in items.items()
     }
 
-
-# %%
 
 # %%
 
@@ -557,8 +625,18 @@ def get_fix_prompt_args_examples_for_key_name(key: str, name: str):
     assert prompt_settings.display_args.spreadsheet_ascii_show_diff_if_concise
     assert prompt_settings.use_spreadsheet_if_eq_size_and_change_prompt_otherwise
 
+    assert prompt_settings.just_reasoning_additional_info_in_system
+    assert prompt_settings.system_use_resolve_ambiguity
+    assert not prompt_settings.use_multi_part_transformation_rule_hint_on_user_call
+
     which_shuffle = prompt_settings.shuffle_example_order_with_permutation_index
-    print(f"{which_shuffle=} {key=}")
+    # print(f"{which_shuffle=} {key=}")
+
+    kwargs = dict(
+        use_output_diff=True,
+        use_if_fix_fail_line=False,
+        use_typical_issue_text=not prompt_settings.system_use_multi_part_transformation_rule_hint, # If less focused on rule, emphasize rule details more now.
+    )
 
     if is_eq_size_item(name):
         prompt_args = PromptArgs(
@@ -571,12 +649,16 @@ def get_fix_prompt_args_examples_for_key_name(key: str, name: str):
                 ),
                 max_allowed_tokens_full_ascii_grid=300,
                 spreadsheet_ascii_show_diff_if_concise=True,
+                connected_include_diagonals=prompt_settings.display_args.connected_include_diagonals,
             ),
             use_spreadsheet_if_eq_size_and_change_prompt_otherwise=False,
             shuffle_example_order_with_permutation_index=which_shuffle,
+            just_reasoning_additional_info_in_system=True,
+            system_use_resolve_ambiguity=False,
+            system_use_multi_part_transformation_rule_hint=False,
+            system_use_explain_connected=False,
         )
 
-        kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
         return (
             prompt_args,
             code_repair_reasoning_examples_w_outputs_spreadsheet_alt_color,
@@ -591,9 +673,10 @@ def get_fix_prompt_args_examples_for_key_name(key: str, name: str):
                 ),
             ),
             shuffle_example_order_with_permutation_index=which_shuffle,
+            just_reasoning_additional_info_in_system=True,
+            system_use_resolve_ambiguity=False,
+            system_use_multi_part_transformation_rule_hint=False,
         )
-
-        kwargs = dict(use_output_diff=True, use_if_fix_fail_line=False)
 
         return (
             prompt_args,
@@ -624,16 +707,11 @@ def can_include_for_fix(run_output: RunOutput, name: str) -> bool:
         ):
             return False
 
-        # made things worse on the sets I tested for some reason???
-        # Super strange to do repair with output == input... (Like why would this be a better starting point...)
-        # Maybe something is going on like:
-        # - If the best one is the same as the input, then ~nothing so far has any signal
-        # - If ~nothing has signal, then just starting from blank slate-ish case with some already done reasoning is better than no signal with messy diff.
-        #   (Same as taking normal samples maybe. So no edge on doing repair relative to normal samples in this case probably. (but there is an edge in general).)
-        # if all(
-        #     x == data["input"] for x, data in zip(run_output.train_results, train_data)
-        # ):
-        #     return False
+        # skip input == output
+        if all(
+            x == data["input"] for x, data in zip(run_output.train_results, train_data)
+        ):
+            return False
 
         return True
 
@@ -647,7 +725,7 @@ async def run_all_fix_items():
     # (1/2 also worked well.)
 
     if is_small_run:
-        ns = [48, 32, 24, 16]
+        ns = [48, 32, 24]
     else:
         target_total_n = 384
         multiplier = 3 / 4
@@ -763,6 +841,7 @@ async def run_all_fix_items():
                 args=prompt_args,
                 use_explicit_start=False,  # TODO: test more carefully later, but probably doesn't matter...
                 # do_print_prompt=True,
+                use_fix_reasoning_tags=True,
                 **fix_kwargs,
             )
             for this_n, name, prompt_args, examples, key, all_reasoning_and_outputs, fix_kwargs in items
@@ -822,6 +901,9 @@ ALLOWED_ATTEMPTS = 2
 all_fully_merged_eval: dict[str, list[tuple[RunOutput, str]]] = defaultdict(list)
 
 for k, vs in eval_out_dict_main.items():
+    # if k != "variant_0":
+    #     print(f"Skipping {k=}")
+    #     continue
     for name, v in vs.items():
         all_fully_merged_eval[name].extend(v)
 
@@ -924,7 +1006,7 @@ ks = np.array(
     np.logspace(
         0, logspace_endpoint, num=logspace_endpoint + 1, base=2, dtype=int
     ).tolist()
-    + [total_n]
+    + ([total_n] if total_n != 2 ** logspace_endpoint else [])
 )
 
 V = TypeVar("V")
@@ -969,11 +1051,13 @@ def run_for_k(k: int, max_chunks: int = 16):
 
 # %%
 
+fit_start = 2
+
 if expected_sub is not None:
     perfs_by_k = [run_for_k(k, max_chunks=max(min(256, total_n) // k, 1)) for k in ks]
     # log_incor_by_k = np.log2(1 - np.array(perfs_by_k))
-    lin_fit = np.polyfit(np.log2(ks[3:]), perfs_by_k[3:], 1)
-    # log_incor_fit = np.polyfit(np.log2(ks)[3:], log_incor_by_k[3:], 1)
+    lin_fit = np.polyfit(np.log2(ks[fit_start:]), perfs_by_k[fit_start:], 1)
+    # log_incor_fit = np.polyfit(np.log2(ks)[fit_start:], log_incor_by_k[fit_start:], 1)
 
 # %%
 
@@ -995,24 +1079,24 @@ def make_plot(
 
     fig, ax = plt.subplots(figsize=(24, 20))
 
-    ks_to_use_v2 = ks
+    ks_to_use_v3 = ks
 
     perf_to_use = perfs_by_k
     fit_to_use = lin_fit
 
     if show_fit:
-        ks_to_use_v2 = ks_to_use_v2[3:]
-        perf_to_use = perf_to_use[3:]
+        ks_to_use_v3 = ks_to_use_v3[fit_start:]
+        perf_to_use = perf_to_use[fit_start:]
 
     if extrapolate_fit:
         assert show_fit
 
-        k_start = ks_to_use_v2[0]
+        k_start = ks_to_use_v3[0]
 
         start_point = math.floor(math.log2(k_start)) + 1
         ks_to_use_for_fit = np.concatenate(
             [
-                np.array(ks_to_use_v2),
+                np.array(ks_to_use_v3),
                 np.logspace(
                     start_point,
                     extrapolate_fit_to,
@@ -1022,34 +1106,34 @@ def make_plot(
                 ),
             ]
         ).tolist()
-        ks_to_use_for_fit_v2 = ks_to_use_for_fit
-        ks_to_use_tick = ks_to_use_for_fit_v2
+        ks_to_use_for_fit_v3 = ks_to_use_for_fit
+        ks_to_use_tick = ks_to_use_for_fit_v3
     else:
-        ks_to_use_for_fit_v2 = ks_to_use_v2
-        ks_to_use_tick = ks_to_use_v2
+        ks_to_use_for_fit_v3 = ks_to_use_v3
+        ks_to_use_tick = ks_to_use_v3
 
-    ax.plot(ks_to_use_v2, perf_to_use, label="V2")
+    ax.plot(ks_to_use_v3, perf_to_use, label="V3")
 
     if show_fit:
-        v2_fit_vals = np.polyval(fit_to_use, np.log2(ks_to_use_for_fit_v2))
+        v3_fit_vals = np.polyval(fit_to_use, np.log2(ks_to_use_for_fit_v3))
         ax.plot(
-            ks_to_use_for_fit_v2,
-            v2_fit_vals,
-            label=f"fit V2: {fit_to_use[0]:.3f}x + {fit_to_use[1]:.3f}",
+            ks_to_use_for_fit_v3,
+            v3_fit_vals,
+            label=f"fit V3: {fit_to_use[0]:.3f}x + {fit_to_use[1]:.3f}",
         )
         if show_fit_with_revision_frac is not None:
             assert not use_log_incor
-            # v2_fit_revision_vals = 1 - (
-            #     (1 - v2_fit_vals) * (1 - show_fit_with_revision_frac)
+            # v3_fit_revision_vals = 1 - (
+            #     (1 - v3_fit_vals) * (1 - show_fit_with_revision_frac)
             # )
             rem_revision = 1 - show_fit_with_revision_frac
-            v2_fit_revision_vals = (
-                rem_revision * v2_fit_vals + show_fit_with_revision_frac
+            v3_fit_revision_vals = (
+                rem_revision * v3_fit_vals + show_fit_with_revision_frac
             )
             ax.plot(
-                ks_to_use_for_fit_v2,
-                v2_fit_revision_vals,
-                label=f"fit V2 w/ revision: {rem_revision * fit_to_use[0]:.3f}x + {rem_revision * fit_to_use[1] + show_fit_with_revision_frac:.3f}",
+                ks_to_use_for_fit_v3,
+                v3_fit_revision_vals,
+                label=f"fit V3 w/ revision: {rem_revision * fit_to_use[0]:.3f}x + {rem_revision * fit_to_use[1] + show_fit_with_revision_frac:.3f}",
             )
 
     ax.set_xscale("log", base=2)
@@ -1068,9 +1152,9 @@ def make_plot(
 
     ax.set_xlabel("k")
     if use_log_incor:
-        ax.set_ylabel("Log top-3 incorrectness rate")
+        ax.set_ylabel("Log top-2 incorrectness rate")
     else:
-        ax.set_ylabel("Top-3 accuracy")
+        ax.set_ylabel("Top-2 accuracy")
     if show_fit:
         plt.legend()
 

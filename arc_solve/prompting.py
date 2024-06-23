@@ -1,5 +1,7 @@
 from collections import Counter, defaultdict
+import json
 import math
+import hashlib
 from functools import cache
 import os
 import io
@@ -9,14 +11,14 @@ import base64
 import asyncio
 import itertools
 
-from scipy.ndimage import label
+from scipy.ndimage import label, generate_binary_structure
 import attrs
 import numpy as np
 import openai
 import nest_asyncio
 import tiktoken
 
-from rrutils.llm_api.base_llm import ContextLengthExceeded
+from rrutils.llm_api.base_llm import ContextLengthExceeded, LLMResponse
 
 nest_asyncio.apply()
 
@@ -118,17 +120,30 @@ async def call_anthropic(
     )
 
 
+def normalize_ordering(items: list[LLMResponse]) -> list[LLMResponse]:
+    def stable_hash(x: str):
+        hasher = hashlib.md5()
+        hasher.update(x.encode())
+        return hasher.hexdigest()
+
+    return sorted(items, key=lambda x: (-len(x.completion), stable_hash(x.completion)))
+
+
 def get_alternative_system_prompt(
     use_diff_highlight: bool = False,
     use_diff_triangles: bool = False,
-    additional_info: bool = False,
-    just_reasoning_additional_info: bool = False,
+    additional_info: bool = True,
+    just_reasoning_additional_info: bool = True,
     just_attributes_additional_info: bool = False,
     use_many_ascii_representations: bool = False,
     use_alt_color_scheme: bool = False,
     disable_absolute_in_normalized_ascii: bool = False,
     long_as_you_want: bool = False,
     use_diff_rep: bool = False,
+    use_resolve_ambiguity: bool = True,
+    use_multi_part_transformation_rule_hint: bool = False,
+    use_explain_connected: bool = False,
+    connected_include_diagonals: bool = False,
 ):
     scheme = (
         alt_color_scheme_consts_name
@@ -157,6 +172,13 @@ We will use the '...' notation as described earlier when applicable."""
     if not use_diff_rep:
         diff_rep = ""
 
+    if connected_include_diagonals:
+        explain_connected = " For this connected component representation, we use 8-connectivity (aka Moore neighborhood) where both orthogonally and diagonally adjacent pixels are considered connected. This includes pixels to the up, down, left, right, as well as the four diagonal neighbors (up-left, up-right, down-left, down-right). (Note that this differs from how (e.g.) scipy.ndimage.label treats connected components.)"
+    elif use_explain_connected:
+        explain_connected = " For this connected component representation, we use 4-connectivity (aka von Neumann neighborhood) where orthogonally adjacent pixels (up, down, left, right) are considered connected. (This matches scipy.ndimage.label.)"
+    else:
+        explain_connected = ""
+
     ascii_rep_desc = f"""Here are descriptions of each of the different ASCII representations we will provide:
 
 ### Color by location representation
@@ -167,7 +189,7 @@ This is a grid of elements separated by '|'. For each element, we provide the co
 
 This is a mapping from colors to the locations at which that color occurs. We use 'XR ... YR' to denote that row R is occupied from X to Y (inclusive). For instance, 'C5 ... G5' would correspond to 'C5 D5 E5 F5 G5'. We only use this '...' notation for moderately long contiguous runs of cells in a row. We don't use this notation for columns.
 
-We also separate the list into connected components (shapes). Each shape/component is separated by '|'.
+We also separate the list into connected components (shapes).{explain_connected} Each shape/component is separated by '|'.
 
 ### Normalized shape representation (by color)
 
@@ -184,9 +206,9 @@ Now we're done going through the descriptions of the different ASCII representat
 
     maybe_diff_triangles_line = "\n\nWhen the input and output grids have identical dimensions and share the same color in more than 60% of their cells, we will display an additional image which shows the input color in the upper left triangle of the cell and the output color in the lower right triangle of the cell. Correspondingly, cells which are all one color (the upper triangle and lower triangle are the same color) are cells where the input and the output grids have the same color. This visualization is to help you easily identify and understand the differences between the input and output grids."
 
-    additional_info_line_reasoning = """You follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.
+    additional_info_line_reasoning = f"""You follow a particular reasoning style. You break down complex problems into smaller parts and reason through them step by step, arriving at sub-conclusions before stating an overall conclusion. This reduces the extent to which you need to do large leaps of reasoning.
 
-You reason in substantial detail for as long as is necessary to determine the transformation rule."""
+You reason in substantial detail for as long as is necessary to {'determine the transformation rule.' if not use_resolve_ambiguity else 'fully determine the transformation rule and resolve any ambiguities/uncertainties.'}"""
 
     no_need_conside_as_long = "\n\nYour reasoning **can be as long as necessary**! The goal of the reasoning is just to make sure you end up with a correct implementation of the transformation rule, so **there isn't any need for your reasoning to be concise**. You should do any and all reasoning that would be useful."
 
@@ -198,6 +220,7 @@ You reason in substantial detail for as long as is necessary to determine the tr
     )
 
     additional_info_line = f"""\n\n{additional_info_line_reasoning}{no_need_conside_as_long}\n\n{additional_info_line_attributes}"""
+    # print(additional_info_line)
 
     if just_reasoning_additional_info:
         additional_info_line = "\n\n" + additional_info_line_reasoning
@@ -223,15 +246,39 @@ You reason in substantial detail for as long as is necessary to determine the tr
     if not additional_info:
         additional_info_line = ""
 
+    single_correct_resolve_ambiguity = "\n\nThe transformation rule maps from each input to a single correct output, and your implementation in code must be exactly correct. Thus, you need to resolve all potential uncertainties you might have about the transformation rule. For instance, if the examples always involve some particular color being changed to another color in the output, but which color it is changed to varies between different examples, then you need to figure out what determines the correct output color. As another example, if some shape(s) or cells in the input are relocated or recolored, you need to determine which exact shapes should be relocated/recolored in the output and where they should be moved or what their color in the output should be. Whenever there are potential ambiguities/uncertainties in your current understanding of the transformation rule, you need to resolve them before implementing the transformation in code. You should resolve ambiguities and uncertainties by carefully analyzing the examples and using step by step reasoning."
+
+    multiple_part_transformation_rule_hint = """
+
+The transformation rule might have multiple components and might be fairly complex. It's also reasonably common that the transformation rule has one main rule (e.g., replace cells in XYZ pattern with color ABC), but has some sort of exception (e.g., don't replace cells if they have color DEF). So, you should be on the lookout for additional parts or exceptions that you might have missed so far. Consider explicitly asking yourself (in writing): \"Are there any additional parts or exceptions to the transformation rule that I might have missed?\" (Rules don't necessarily have multiple components or exceptions, but it's common enough that you should consider it.)
+
+Here are some examples of transformation rules with multiple components or exceptions:
+
+- There is a grey grid with black holes that have different shapes and the rule is to fill in these holes with colored cells. Further, the color to use for each hole depends on the size of the hole (in terms of the number of connected cells). 1 cell holes are filled with pink, 2 cell holes are filled with blue, and 3 cell holes are filled with red.
+- The output is 3x3 while the input is 3x7. The output has red cells while the input has two "sub-grids" that are 3x3 and separated by a grey line in the middle. Each of the sub-grids has some colored cells (blue) and some black cells. The rule is to AND the two sub-grids together (i.e., take the intersection of where the two sub-grids are blue) and color the 3x3 cells in the output red if they are in the intersection and black otherwise.
+- The grey rectangular outlines are filled with some color in the output. Pink, orange, and purple are used to fill in the voids in different cases. The color depends on the size of the black void inside the grey outline where it is pink if the void has 1 cell (1x1 void), orange if the gap has 4 cells, and purple if the gap was 9 cells. For each void, all of the filled-in colors are the same.
+- The red shape in the input is moved. It is moved either horizontally or vertically. It is moved until moving it further would intersect with a purple shape. It is moved in the direction of the purple shape, that is, moved in whichever direction would involve it eventually intersecting with this purple shape.
+
+These are just example rules; the actual transformation rule will be quite different. But, this should hopefully give you some sense of what transformation rules might look like.
+
+Note that in each of these cases, you would need to find the rule by carefully examining the examples and using reasoning. You would then need to implement the transformation rule precisely, taking into account all possible cases and getting all of the details right (e.g., exactly where to place various things or exactly which color to use in each case). If the details aren't fully ironed out, you should do additional reasoning to do so before implementing the transformation in code."""
+
+    if not use_resolve_ambiguity:
+        single_correct_resolve_ambiguity = ""
+    else:
+        assert additional_info
+        assert not just_attributes_additional_info
+
+    if not use_multi_part_transformation_rule_hint:
+        multiple_part_transformation_rule_hint = ""
+
     alternative_system_prompt_text = f"""You will be given some number of paired example inputs and outputs. The outputs were produced by applying a transformation rule to the inputs. In addition to the paired example inputs and outputs, there is also an additional input without a known output (or possibly multiple additional inputs). Your task is to determine the transformation rule and implement it in code.
 
-{input_line}{maybe_diff_highlight_line}{maybe_diff_triangles_line}
-
-The transformation only needs to be unambiguous and applicable to the example inputs, the additional input(s), and other inputs which have the same properties as these inputs. It doesn't need to work for all possible inputs.
+{input_line}{maybe_diff_highlight_line}{maybe_diff_triangles_line}{single_correct_resolve_ambiguity}{multiple_part_transformation_rule_hint}
 
 You'll need to carefully reason in order to determine the transformation rule. Start your response by carefully reasoning in <reasoning></reasoning> tags. Then, implement the transformation in code.
 
-After your reasoning write code in triple backticks (```python and then ```). You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).
+After your reasoning, write code in triple backticks (```python and then ```). You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should make sure that you implement a version of the transformation which works in general (for inputs which have the same properties as the example inputs and the additional input(s)).
 
 Don't write tests in your python code, just output the `transform` function.{additional_info_line}"""
 
@@ -264,6 +311,7 @@ class DisplayArgs:
     disable_absolute_in_normalized_ascii: bool = False
     max_allowed_tokens_per_color: Optional[int] = 200
     max_allowed_tokens_full_ascii_grid: Optional[int] = None
+    connected_include_diagonals: bool = False
 
 
 # %%
@@ -382,6 +430,16 @@ def get_spreadsheet_notation_support_runs(rows_cols: list[tuple[int, int]]):
 
 def find_contiguous_shapes(grid, color):
     labeled_array, num_features = label(grid == color)
+    shapes = []
+    for i in range(1, num_features + 1):
+        shapes.append(np.argwhere(labeled_array == i))
+    return shapes
+
+
+# version with diagonals
+def find_contiguous_shapes_moore(grid, color):
+    s = generate_binary_structure(2, 2)
+    labeled_array, num_features = label(grid == color, structure=s)
     shapes = []
     for i in range(1, num_features + 1):
         shapes.append(np.argwhere(labeled_array == i))
@@ -657,7 +715,12 @@ def display_single_grid_alt(
         ascii_text = f"### Color by location representation\n\n{color_by_loc_rep}\n\n"
 
         shapes_by_color = {
-            color: find_contiguous_shapes(grid, color) for color in range(11)
+            color: (
+                find_contiguous_shapes_moore
+                if display_args.connected_include_diagonals
+                else find_contiguous_shapes
+            )(grid, color)
+            for color in range(11)
         }
 
         out_text_by_color, was_color_omitted = (
@@ -906,9 +969,11 @@ def fix_prompt(
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
     shuffle_example_order_with_permutation_index: Optional[int] = None,
+    use_fix_reasoning_tags: bool = False,
+    use_typical_issue_text: bool = False,
 ):
     attempt_str = (
-        f" (This is attempt {attempt_num + 1} at fixing the code.)"
+        f" (This is attempt {attempt_num + 1} at fixing the implementation.)"
         if attempt_num > 0
         else ""
     )
@@ -955,9 +1020,15 @@ Ok, now here are the outputs and differences for each example:"""
 
     # We will use the '...' notation as described earlier when applicable."""
 
+    reasoning_tag_str = (
+        "<fix_reasoning></fix_reasoning>"
+        if use_fix_reasoning_tags
+        else "<reasoning></reasoning>"
+    )
+
     prompt = f"""The `transform` function you implemented failed on at least one of the examples you were provided.{attempt_str} Your task is to determine what this issue is and then fix the code. The issue could be a bug in the code and/or an issue with your previous understanding of the transformation rule.
 
-You'll need to carefully reason to determine the issue and to determine how to fix the code. Start your response by doing this reasoning in <reasoning></reasoning> tags. Then, implement the fixed transformation in code.
+You'll need to carefully reason to determine the issue and to determine how to fix the code. Start your response by doing this reasoning in {reasoning_tag_str} tags. Then, implement the fixed transformation in code.
 
 {show_rep}""".strip()
 
@@ -1005,9 +1076,14 @@ You'll need to carefully reason to determine the issue and to determine how to f
     if not use_if_fix_fail_line:
         if_fix_fail_line = ""
 
+    typical_issue_text = "\n\nIf you notice an issue with your previous understanding of the transformation rule, you'll need to do further analysis (including analyzing properties of the example inputs and outputs) to determine exactly what the correct transformation rule is."
+
+    if not use_typical_issue_text:
+        typical_issue_text = ""
+
     after_examples_prompt = f"""Ok, that is all of the actual and expected outputs.
 
-Recall that you should start by reasoning to determine what the issue is in <reasoning></reasoning> tags. Also recall that the problem could be a bug in the code and/or an issue with your previous understanding of the transformation rule.
+Recall that you should start by reasoning to determine what the issue is in {reasoning_tag_str} tags. Also recall that the problem could be a bug in the code and/or an issue with your previous understanding of the transformation rule.{typical_issue_text}
 
 Once you are done reasoning, rewrite the code to fix the issue. Return the code in triple backticks (```python and then ```).{if_fix_fail_line}""".strip()
 
@@ -1028,6 +1104,7 @@ def get_rule_input_alt(
     name: str,
     display_args: DisplayArgs = DisplayArgs(),
     shuffle_example_order_with_permutation_index: Optional[int] = None,
+    use_multi_part_transformation_rule_hint: bool = False,
 ):
     exs = list(out_data_by_name_d[name]["train"]).copy()  # yes, copy is redundant
     if shuffle_example_order_with_permutation_index is not None:
@@ -1077,6 +1154,14 @@ def get_rule_input_alt(
             ]
         )
 
+    if use_multi_part_transformation_rule_hint:
+        out.append(
+            {
+                "type": "text",
+                "text": f"""While reasoning, recall that the transformation rule might have multiple components and might be fairly complex.""",
+            }
+        )
+
     return out
 
 
@@ -1089,7 +1174,7 @@ class PromptArgs:
     display_args: DisplayArgs = DisplayArgs()
     additional_info_in_system: bool = True
     use_spreadsheet_if_eq_size_and_change_prompt_otherwise: bool = False
-    just_reasoning_additional_info_in_system: bool = False
+    just_reasoning_additional_info_in_system: bool = True
     just_attributes_additional_info_in_system: bool = False
     force_reasoning_labeled_items: Optional[tuple[tuple[str, str], ...]] = (
         None  # tuple for hash
@@ -1102,6 +1187,10 @@ class PromptArgs:
     ] = None
     emphasize_long_in_system: bool = False
     shuffle_example_order_with_permutation_index: Optional[int] = None
+    system_use_resolve_ambiguity: bool = True
+    system_use_multi_part_transformation_rule_hint: bool = False
+    use_multi_part_transformation_rule_hint_on_user_call: bool = False
+    system_use_explain_connected: bool = False
 
     def __attrs_post_init__(self):
         if self.use_spreadsheet_if_eq_size_and_change_prompt_otherwise:
@@ -1132,6 +1221,10 @@ def make_prompt_alt(
             disable_absolute_in_normalized_ascii=args.display_args.disable_absolute_in_normalized_ascii,
             long_as_you_want=args.emphasize_long_in_system,
             use_diff_rep=args.display_args.spreadsheet_ascii_show_diff_if_concise,
+            use_resolve_ambiguity=args.system_use_resolve_ambiguity,
+            use_multi_part_transformation_rule_hint=args.system_use_multi_part_transformation_rule_hint,
+            use_explain_connected=args.system_use_explain_connected,
+            connected_include_diagonals=args.display_args.connected_include_diagonals,
         )
     )
 
@@ -1181,6 +1274,8 @@ def make_fix_prompt_item(
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
     shuffle_example_order_with_permutation_index: Optional[int] = None,
+    use_fix_reasoning_tags: bool = False,
+    use_typical_issue_text: bool = False,
 ):
     return make_fix_prompt_item_uncache(
         name=name,
@@ -1194,6 +1289,8 @@ def make_fix_prompt_item(
         use_output_diff=use_output_diff,
         use_if_fix_fail_line=use_if_fix_fail_line,
         shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
+        use_fix_reasoning_tags=use_fix_reasoning_tags,
+        use_typical_issue_text=use_typical_issue_text,
     )
 
 
@@ -1206,6 +1303,8 @@ def make_fix_prompt_item_uncache(
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
     shuffle_example_order_with_permutation_index: Optional[int] = None,
+    use_fix_reasoning_tags: bool = False,
+    use_typical_issue_text: bool = False,
 ):
     (initial_reasoning, initial_run_output), *all_fix_reasoning = (
         all_reasoning_and_outputs
@@ -1247,6 +1346,8 @@ def make_fix_prompt_item_uncache(
                 use_output_diff=use_output_diff,
                 use_if_fix_fail_line=use_if_fix_fail_line,
                 shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
+                use_fix_reasoning_tags=use_fix_reasoning_tags,
+                use_typical_issue_text=use_typical_issue_text,
             ),
         },
     ]
@@ -1255,11 +1356,21 @@ def make_fix_prompt_item_uncache(
     else:
         print("WARNING: no fix reasoning provided!")
 
+    def replace_tags_as_needed_for_fix_reasoning(fix_reasoning: str):
+        if not use_fix_reasoning_tags:
+            assert "<fix_reasoning>" not in fix_reasoning
+            assert "</fix_reasoning>" not in fix_reasoning
+            return fix_reasoning
+
+        return fix_reasoning.replace("<reasoning>", "<fix_reasoning>").replace(
+            "</reasoning>", "</fix_reasoning>"
+        )
+
     for idx, (reasoning, run_output) in enumerate(all_fix_reasoning):
         prompt.append(
             {
                 "role": "assistant",
-                "content": reasoning,
+                "content": replace_tags_as_needed_for_fix_reasoning(reasoning),
             },
         )
         if idx != len(all_fix_reasoning) - 1 or use_next_prompt:
@@ -1274,6 +1385,8 @@ def make_fix_prompt_item_uncache(
                         use_output_diff=use_output_diff,
                         use_if_fix_fail_line=use_if_fix_fail_line,
                         shuffle_example_order_with_permutation_index=shuffle_example_order_with_permutation_index,
+                        use_fix_reasoning_tags=use_fix_reasoning_tags,
+                        use_typical_issue_text=use_typical_issue_text,
                     ),
                 },
             )
@@ -1288,6 +1401,8 @@ def make_all_fix_prompt_alt(
     use_explicit_start: bool = False,
     use_output_diff: bool = True,
     use_if_fix_fail_line: bool = False,
+    use_fix_reasoning_tags: bool = False,
+    use_typical_issue_text: bool = False,
 ):
     prompt = list(
         get_alternative_system_prompt(
@@ -1301,6 +1416,10 @@ def make_all_fix_prompt_alt(
             disable_absolute_in_normalized_ascii=args.display_args.disable_absolute_in_normalized_ascii,
             long_as_you_want=args.emphasize_long_in_system,
             use_diff_rep=args.display_args.spreadsheet_ascii_show_diff_if_concise,
+            use_resolve_ambiguity=args.system_use_resolve_ambiguity,
+            use_multi_part_transformation_rule_hint=args.system_use_multi_part_transformation_rule_hint,
+            use_explain_connected=args.system_use_explain_connected,
+            connected_include_diagonals=args.display_args.connected_include_diagonals,
         )
     )
 
@@ -1334,6 +1453,8 @@ def make_all_fix_prompt_alt(
                     if is_last
                     else None
                 ),
+                use_fix_reasoning_tags=use_fix_reasoning_tags,
+                use_typical_issue_text=use_typical_issue_text,
             )
         )
 
@@ -1467,6 +1588,7 @@ async def run_on_input_alt(
                 name,
                 display_args=prompt_args_here.display_args,
                 shuffle_example_order_with_permutation_index=prompt_args_here.shuffle_example_order_with_permutation_index,
+                use_multi_part_transformation_rule_hint=prompt_args_here.use_multi_part_transformation_rule_hint_on_user_call,
             ),
         }
     )
@@ -1519,7 +1641,10 @@ async def run_on_input_alt(
             return None
 
         raise
+    out = normalize_ordering(out)
+
     print(f"{out[0].token_usage=}")
+
     return out
 
 
@@ -1621,6 +1746,8 @@ async def fix_on_input(
     ],
     use_output_diff: bool = True,  # not back compat, but better probably
     use_if_fix_fail_line: bool = False,
+    use_fix_reasoning_tags: bool = False,
+    use_typical_issue_text: bool = False,
 ):
     if n == 0:
         return name, all_reasoning_and_outputs, args, []
@@ -1633,6 +1760,8 @@ async def fix_on_input(
             use_explicit_start=use_explicit_start,
             use_output_diff=use_output_diff,
             use_if_fix_fail_line=use_if_fix_fail_line,
+            use_fix_reasoning_tags=use_fix_reasoning_tags,
+            use_typical_issue_text=use_typical_issue_text,
         )
     )
 
@@ -1671,6 +1800,9 @@ async def fix_on_input(
             return name, all_reasoning_and_outputs, args, None
 
         raise
+
+    out = normalize_ordering(out)
+
     print(f"{out[0].token_usage=}")
 
     return (

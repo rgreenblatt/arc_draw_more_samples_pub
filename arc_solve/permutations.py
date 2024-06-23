@@ -1,5 +1,7 @@
 import itertools
+import json
 import numpy as np
+import hashlib
 
 def permutation_list(n: int):
     assert n > 1
@@ -21,3 +23,7 @@ def permutation_list(n: int):
     return out
 
 all_permutation_indices = {n: permutation_list(n) for n in range(2, 11)}
+
+hasher = hashlib.md5()
+hasher.update(json.dumps(all_permutation_indices).encode())
+assert hasher.hexdigest() == 'bfe41d1bebc5f8bbb40f7ae40b446e8f'

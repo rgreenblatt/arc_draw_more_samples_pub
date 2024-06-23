@@ -1,5 +1,6 @@
 import re
 import json
+import traceback
 from typing import Any, Optional
 
 import numpy as np
@@ -26,6 +27,7 @@ class StdoutStderr:
     stdout: str
     stderr: str
 
+
 @attrs.frozen
 class RunOutputHashable:
     train_results: tuple[tuple[tuple[int, ...], ...] | None, ...]
@@ -48,7 +50,6 @@ class RunOutput:
 
     def all_train_correct(self):
         return all(self.train_corr)
-
 
     def test_output_as_hashable(self):
         return tuple(
@@ -97,7 +98,6 @@ class RunOutput:
             ],
             test_stdout_stderr=list(x.test_stdout_stderr),
         )
-
 
 
 @attrs.frozen
@@ -163,7 +163,7 @@ async def evaluate_funcs_with_timeout_cache(
     ]
 
 
-key_name = "run_arc_programs_20"
+key_name = "run_arc_programs_24"
 
 json_converter = make_converter()
 
@@ -188,15 +188,36 @@ def transform(grid_lst: list[list[int]]) -> list[list[int]]:
 """.strip()
 
 
+def clean_code(s: str):
+    return s.replace("\t", " " * 4)
+
+
 def parse_python_backticks(s: str):
-    try:
-        out = re.search(r"```python\n(.*)\n```", s, re.DOTALL | re.MULTILINE).group(1)
-        return out.replace("\t", " " * 4)
-    except AttributeError:
-        print("PARSE ERROR")
-        return noop_code
-        # print(s)
-        # raise
+    if s.count("```python") == 0:
+        print(f"NO CODE BLOCKS")
+        out = s.partition("</reasoning>")[2]
+        if out == "":
+            return noop_code
+        return clean_code(out)
+
+    if s.count("```python") > 1:
+        # print(f"MULTIPLE CODE BLOCKS\n=====\n\n{s}\n\n=====")
+        s = "```python" + s.split("```python")[-1]
+
+    assert s.count("```python") == 1
+
+    attempted_search = re.search(r"```python\n(.*)\n```", s, re.DOTALL | re.MULTILINE)
+    if attempted_search is not None:
+        return clean_code(attempted_search.group(1))
+
+    attempted_search = re.search(r"```python\n(.*)\n`", s, re.DOTALL | re.MULTILINE)
+    if attempted_search is not None:
+        print(f"PARSE ERROR CASE (1)")
+        return clean_code(attempted_search.group(1))
+    else:
+        print(f"PARSE ERROR CASE (2!)")
+
+    return clean_code(s.partition("```python")[2])
 
 
 def munge_process_output(x: tuple[Any, str, str]):
@@ -211,7 +232,7 @@ def munge_process_output(x: tuple[Any, str, str]):
         out_array = [[int(y) for y in z] for z in val]
 
         arr = np.array(out_array)
-        if arr.ndim != 2:
+        if arr.ndim != 2 or arr.shape[0] > 100 or arr.shape[1] > 100:
             return None, out_str
 
         return out_array, out_str
@@ -224,7 +245,12 @@ def run_on_train_test(name: str, s: str):
     train = data["train"]
     test = data["test"]
 
-    solution = parse_python_backticks(s)
+    try:
+        solution = parse_python_backticks(s)
+    except Exception as e:
+        print("FAIL!", e)
+        traceback.print_exc()
+        raise
 
     # print(s)
     # print(repr(s))

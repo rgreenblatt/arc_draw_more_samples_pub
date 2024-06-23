@@ -1,7 +1,4 @@
-import random
 import re
-
-from arc_solve.permutations import all_permutation_indices
 
 example_1 = "4be741c5.json"
 example_1_reasoning = """
@@ -2694,18 +2691,6 @@ reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff = [
     ),
 ]
 
-
-all_permutation_indices_filt_basic_for_concise_diff = [
-    perm for perm in all_permutation_indices[4] if perm[0] != 1 and perm[-1] != 1
-]
-
-permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff = [
-    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
-] + [
-    [reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff[i] for i in perm]
-    for perm in all_permutation_indices_filt_basic_for_concise_diff
-]
-
 reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter = [
     (
         example_3,
@@ -2720,34 +2705,260 @@ reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter = [
         example_20_full_spreadsheet_reasoning_with_diff,
     ),
 ]
-
-
-all_permutation_indices_filt_basic_for_concise_diff_shorter = [
-    perm for perm in all_permutation_indices[3]  # Nothing
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter_alt_order = [
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
 ]
 
-permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter = [
-    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter
-] + [
-    [
-        reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter[i]
-        for i in perm
-    ]
-    for perm in all_permutation_indices_filt_basic_for_concise_diff_shorter
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_0 = [
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_2,
+        example_2_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+]
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_1 = [
+    (
+        example_2,
+        example_2_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+]
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_2 = [
+    (
+        example_2,
+        example_2_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
 ]
 
-all_perm_reasoning_concise_diff_prompt_merge = (
-    permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff
-    + permutations_of_reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter
-)
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_3 = [
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_2,
+        example_2_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+]
 
-assert len(set(tuple(x) for x in all_perm_reasoning_concise_diff_prompt_merge)) == len(
-    all_perm_reasoning_concise_diff_prompt_merge
-)
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_4 = [
+    (
+        example_20_full_spreadsheet,
+        example_20_full_spreadsheet_reasoning_with_diff,
+    ),
+    (
+        example_2,
+        example_2_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_5,
+        example_5_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+    (
+        example_3,
+        example_3_reasoning_full_spreadsheet_alt_color_with_diff,
+    ),
+]
 
-for reasoning_perm in all_perm_reasoning_concise_diff_prompt_merge:
-    assert reasoning_perm[0][0] != example_2
-    assert reasoning_perm[-1][0] != example_2
+reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants = [
+    # pretty arbitrary, but I do try to do higher diversity and more reasonably than literal random
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_0,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_1,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_2,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_shorter_alt_order,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_3,
+    reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_alt_order_4,
+]
+
+assert len(
+    set(
+        tuple(x)
+        for x in reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants
+    )
+) == len(reasoning_labeled_items_full_spreadsheet_alt_color_concise_diff_variants)
+
+# %%
+
+
+example_20_full_spreadsheet_reasoning_with_diff_use_connected_diagonal = """
+<reasoning>
+The outputs always have the same shape as the inputs. The outputs are similar to the inputs, but some edits have been made.
+
+I'll describe the changes from the input to the output in detail for each of the examples to infer the transformation rule. I'll also describe the input for each example.
+
+In example 1:
+
+- There is a black background and the rightmost 3 columns are all red.
+- In the input, there are 2 purple cells (D11 C12).
+- In the output, green cells are added. (Replacing the black background and replacing no other colors.)
+- No other changes are made.
+- The green cells form two diagonal lines at different angles.
+- These diagonal lines consists of cells which are adjacent over the diagonal. The lines are one cell wide.
+- D10 is a green cell which is nearby the purple cells. E10 is diagonally adjacent to D11 (D11 is one row lower and one column to the left). The other purple cell, C12 is also diagonally adjacent in the same way where it is one row lower and one column to the left.
+- There is a diagonal line extending out from E10. It goes from E10 to F9 which is one row higher and one column to the right. The line seems to continue with F9 G8 H7 I6 J5. However, the next green cell is I4 which breaks the pattern: it is one row higher, but it is one column to the left instead of to the right.
+- After I4 there is H3 G2 F1 which continues the pattern of one row higher and one column to the left.
+- So, there is a diagonal line which starts at a cell diagonally adjacent to the purple cells and then goes one row higher and one column to the right for the next cell. The pattern is broken at I4 which switches the direction of the diagonal line.
+- We can think of the purple cells as being in the same diagonal as we have C12 D11 E10 F9 and so on which starts with the purple cells and continues the pattern.
+- Can we determine the reason why the diagonal line changes direction at this point? It changes at J5. J5 is directly to the left of the red cell at K5. K is the leftmost column of the red wall. The next cell after J5 if the trend had continued would have been K4 which is directly above the red cell at K5 and is also a red cell. So, the change in direction is at the red cell.
+
+In example 2:
+
+- There is a black background and the bottommost 3 columns are all red.
+- In the input, there are 3 purple cells (A3 B4 C5). These purple cells form a diagonal.
+- In the output, green cells are added while everything else remains the same.
+- The green cells seem to form diagonals again.
+- There is a green cell by the purple cells. D6 is diagonally adjacent to C5. D6 also continues the pattern of A3 B4 C5 (the purple cells).
+- Does the pattern continue after D6? Yes, there is E7 F8 G9. However, the pattern breaks there. The next cell in the pattern would have been H10 which is a red cell. However, there is I7 which is still one column to the right, but it is one row higher instead of one row lower. After I7 the pattern continues with J6 K5 L4.
+- Again, the diagonal line changes direction when it otherwise would have intersected with a red cell.
+
+It seems like the rule involves drawing out diagonals from the purple cells. The diagonal continues in the diagonal line formed by the purple cells until it would intersect with a red cell. At this point, the diagonal line changes direction to avoid the red cell. The diagonal line seems to reflect off of the red cell/wall.
+
+So, the rule could be:
+
+- Draw a diagonal line of green cells continuing the purple diagonal. There are two possible directions in which the green diagonal could go (continuing either side of the purple diagonal). So, I need to determine what the rule is for which direction is used. In examples 1 and 2, one of the purple cells is on the edge of the grid and thus the diagonal line wouldn't be visible in that direction. So, the diagonal line should continue the direction which isn't off the grid.
+- If the diagonal line would intersect with a red cell, change the direction of the diagonal line to avoid the red cell. The diagonal line should reflect off of the red cell/wall. In example 1, the reflection is off of a vertical wall on the right side of the grid while in example 2, the reflection is off of a horizontal wall occupying the bottom of the grid. So, both vertical and horizontal reflections are possible.
+- The diagonal line continues until it leaves the grid.
+
+I'll quickly check this on example 3 to confirm the rule.
+
+In example 3:
+
+- There are purple cells at G10 H11 I12. So, J13 would be off the grid, so the diagonal line should be formed in the other direction starting at F9. Is there a green cell at F9 in the output? Yes. Does the diagonal continue after I12 H11 G10 F9? Yes, it continues with F9 E8 D7 C6. At that point it deviates with D5.
+- Is the deviation at D5 due to reflecting off of a red cell? The diagonal would have continued to B5. Is this a red cell? Yes. So the deviation does seem to be due to a reflection.
+
+This confirms the rule.
+
+Mechanically, how would this rule be implemented? Here are the steps:
+
+1. First, identify the purple cells.
+2. Next, identify the two possible directions in which the purple diagonal line could continue. We can compute the difference between purple cells to find the diagonal angle.
+3. Determine which of these directions doesn't result in the first cell of the diagonal immediately going off the grid. We can compute the next diagonal cell in either direction and then check if this cell is within the grid.
+4. Trace out the corresponding diagonal line until the next cell would intersect with a red cell. When the next cell would intersect, reflect the diagonal line off of the red wall. To do this, we need to know the orientation of the red wall. We can see if what adjacent red cells are next to the red cell we were about to intersect with. This will define the orientation of the red wall. If the red wall is vertical, we need to flip the column direction of the diagonal line. If the red wall is horizontal, we need to flip the row direction of the diagonal line.
+5. Continue the diagonal line until it leaves the grid.
+
+I will now implement this in code.
+</reasoning>
+
+```python
+import numpy as np
+
+def transform(grid_lst: list[list[int]]) -> list[list[int]]:
+    grid = np.array(grid_lst)
+    rows, cols = grid.shape
+    purple_color = 8
+    green_color = 3
+    red_color = 2
+    black_color = 0
+
+    # Find all purple cells
+    purple_cells = np.argwhere(grid == purple_color)
+
+    if len(purple_cells) < 2:
+        return grid.tolist()
+
+    # Calculate the diagonal direction based on the purple cells
+    delta_y, delta_x = np.diff(purple_cells, axis=0)[0]
+
+    # Two possible directions for the diagonal line
+    direction_1 = (delta_y, delta_x)
+    direction_2 = (-delta_y, -delta_x)
+
+    # Determine which direction to use by checking which direction avoids going off the grid
+    start_cell_1 = purple_cells[-1] + direction_1
+    start_cell_2 = purple_cells[-1] + direction_2
+
+    # We might need to start at the other side if the direction starts there
+    if (start_cell_1 == purple_cells).any():
+        start_cell_1 = purple_cells[0] + direction_1
+    if (start_cell_2 == purple_cells).any():
+        start_cell_2 = purple_cells[0] + direction_2
+
+
+    if 0 <= start_cell_1[0] < rows and 0 <= start_cell_1[1] < cols:
+        diagonal_direction = direction_1
+    else:
+        diagonal_direction = direction_2
+
+    # Start the diagonal line with the appropriate direction
+    current_cell = start_cell_1 if np.array_equal(diagonal_direction, direction_1) else start_cell_2
+
+    # Track prior cell so we can swap back if we hit the red wall
+    prior_cell = np.copy(current_cell)
+
+    while 0 <= current_cell[0] < rows and 0 <= current_cell[1] < cols:
+        if grid[current_cell[0], current_cell[1]] == red_color:
+            # Determine the orientation of the red wall
+            if grid[current_cell[0], current_cell[1] - 1] == red_color and grid[current_cell[0], current_cell[1] + 1] == red_color:
+                # It's a horizontal wall
+                diagonal_direction = (-diagonal_direction[0], diagonal_direction[1])
+            else:
+                # It's a vertical wall
+                diagonal_direction = (diagonal_direction[0], -diagonal_direction[1])
+            # Back up one step and do the correct step
+            current_cell = prior_cell + diagonal_direction
+
+        grid[current_cell[0], current_cell[1]] = green_color
+        prior_cell = np.copy(current_cell)
+        current_cell += diagonal_direction
+
+    return grid.tolist()
+```
+""".strip()
 
 
 # %%
@@ -3173,7 +3384,7 @@ def transform(grid_lst: list[list[int]]) -> list[list[int]]:
                 output[i, j] = 1
     
     return output.tolist()
-```python
+```
 """.strip()
 
 example_11_for_change_reasoning_spreadsheet_alt_color = """
@@ -3540,7 +3751,7 @@ def transform(grid_lst: list[list[int]]) -> list[list[int]]:
                 output[i, j] = 1
     
     return output.tolist()
-```python
+```
 """.strip()
 
 reasoning_labeled_change_prompt_alt_color = [
@@ -3590,18 +3801,6 @@ reasoning_labeled_change_prompt_alt_color_add_swap = [
     ),
 ]
 
-all_permutation_indices_filt_basic_for_add_swap = [
-    perm
-    for perm in all_permutation_indices[5]
-    if perm[0] not in {1, 2} and perm[-1] not in {1, 2}
-]
-
-perms_reasoning_labeled_change_prompt_alt_color_add_swap = [
-    reasoning_labeled_change_prompt_alt_color_add_swap
-] + [
-    [reasoning_labeled_change_prompt_alt_color_add_swap[i] for i in perm]
-    for perm in all_permutation_indices_filt_basic_for_add_swap
-]
 
 reasoning_labeled_change_prompt_alt_color_add_swap_minor_alt = [
     (example_11_for_change, example_11_for_change_reasoning_alt_color),
@@ -3639,21 +3838,6 @@ reasoning_labeled_change_prompt_alt_color_total_alternative_prompt = [
     ),
 ]
 
-all_permutation_indices_filt_basic_for_total_alt_prompt = [
-    perm
-    for perm in all_permutation_indices[4]
-    # Nothing here
-]
-
-perms_reasoning_labeled_change_prompt_alt_color_total_alt_prompt = [
-    reasoning_labeled_change_prompt_alt_color_total_alternative_prompt
-] + [
-    [
-        reasoning_labeled_change_prompt_alt_color_total_alternative_prompt[i]
-        for i in perm
-    ]
-    for perm in all_permutation_indices_filt_basic_for_total_alt_prompt
-]
 
 reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
     (
@@ -3675,41 +3859,117 @@ reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
     ),
 ]
 
-all_permutation_indices_filt_basic_for_another_alt_prompt = [
-    perm
-    for perm in all_permutation_indices[5]
-    if perm[0] not in {1, 3} and perm[-1] not in {1, 3}
-]
-
-perms_reasoning_labeled_change_prompt_alt_color_another_alt_prompt = [
-    reasoning_labeled_change_prompt_alt_color_another_alt_prompt
-] + [
-    [reasoning_labeled_change_prompt_alt_color_another_alt_prompt[i] for i in perm]
-    for perm in all_permutation_indices_filt_basic_for_another_alt_prompt
+reasoning_labeled_change_prompt_alt_color_another_alt_prompt_alt_order = [
+    (
+        example_3,
+        example_3_reasoning_alt_color,
+    ),
+    (example_12_for_change, example_12_for_change_reasoning_alt_color),
+    (
+        example_7,
+        example_7_reasoning_alt_color,
+    ),
+    (
+        example_13_for_change,
+        example_13_for_change_reasoning_alt_color,
+    ),
+    (
+        example_9,
+        example_9_reasoning_alt_color,
+    ),
 ]
 
 # %%
 
-all_perm_reasoning_change_alt_color_prompt_merge = [
-    [
-        perms_reasoning_labeled_change_prompt_alt_color_another_alt_prompt,
-        perms_reasoning_labeled_change_prompt_alt_color_total_alt_prompt,
-        perms_reasoning_labeled_change_prompt_alt_color_add_swap,
-    ][i % 3][i // 3]
-    for i in range(24)
+reasoning_labeled_change_prompt_alt_color_add_swap_change_order = [
+    (
+        example_5,
+        example_5_reasoning_alt_color,
+    ),
+    (example_12_for_change, example_12_for_change_reasoning_alt_color),
+    (example_11_for_change, example_11_for_change_reasoning_alt_color),
+    (
+        example_13_for_change,
+        example_13_for_change_reasoning_alt_color,
+    ),
+    (
+        example_1,
+        example_1_reasoning_for_change_alt_color,
+    ),
 ]
-assert len(set(tuple(x) for x in all_perm_reasoning_change_alt_color_prompt_merge)) == len(
-    all_perm_reasoning_change_alt_color_prompt_merge
-)
-assert all(
-    item[-1][0] not in {example_3, example_12_for_change, example_5}
-    and item[0][0] not in {example_3, example_12_for_change, example_5}
-    for item in all_perm_reasoning_change_alt_color_prompt_merge
+
+reasoning_labeled_change_prompt_alt_color_add_swap_change_order_alt = [
+    (
+        example_5,
+        example_5_reasoning_alt_color,
+    ),
+    (example_12_for_change, example_12_for_change_reasoning_alt_color),
+    (example_11_for_change, example_11_for_change_reasoning_alt_color),
+    (
+        example_1,
+        example_1_reasoning_for_change_alt_color,
+    ),
+    (
+        example_13_for_change,
+        example_13_for_change_reasoning_alt_color,
+    ),
+]
+
+reasoning_labeled_change_prompt_alt_color_further_alt_prompt = [
+    (
+        example_13_for_change,
+        example_13_for_change_reasoning_alt_color,
+    ),
+    (
+        example_3,
+        example_3_reasoning_alt_color,
+    ),
+    (example_12_for_change, example_12_for_change_reasoning_alt_color),
+    (
+        example_7,
+        example_7_reasoning_alt_color,
+    ),
+    (
+        example_1,
+        example_1_reasoning_for_change_alt_color,
+    ),
+]
+reasoning_labeled_change_prompt_alt_color_later_alt_prompt = [
+    (
+        example_5,
+        example_5_reasoning_alt_color,
+    ),
+    (
+        example_3,
+        example_3_reasoning_alt_color,
+    ),
+    (
+        example_1,
+        example_1_reasoning_for_change_alt_color,
+    ),
+    (
+        example_9,
+        example_9_reasoning_alt_color,
+    ),
+]
+
+basic_change_alt_color_variants = [
+    # these are pretty arbitrary, but I try to avoid some stuff
+    reasoning_labeled_change_prompt_alt_color_another_alt_prompt,
+    reasoning_labeled_change_prompt_alt_color_total_alternative_prompt,
+    reasoning_labeled_change_prompt_alt_color_add_swap,
+    reasoning_labeled_change_prompt_alt_color_another_alt_prompt_alt_order,
+    reasoning_labeled_change_prompt_alt_color_add_swap_change_order,
+    reasoning_labeled_change_prompt_alt_color_add_swap_change_order_alt,
+    reasoning_labeled_change_prompt_alt_color_further_alt_prompt,
+    reasoning_labeled_change_prompt_alt_color_later_alt_prompt,
+]
+
+assert len(set(tuple(x) for x in basic_change_alt_color_variants)) == len(
+    basic_change_alt_color_variants
 )
 
 # %%
-
-# permutations_and_other_reasoning_change_alt_color = [ ]
 
 
 reasoning_labeled_change_prompt_alt_color_add_swap_again = [

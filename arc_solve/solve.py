@@ -296,6 +296,11 @@ exclude_names_alt = set().union(
         "a8d7556c.json",
         "44d8ac46.json",
     },
+    {  # excluded because I use description of them  in some of the prompts
+        "aba27056.json",
+        "c0f76784.json",
+        "0520fde7.json",
+    },
 )
 
 # use_train_set = False
