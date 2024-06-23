@@ -1051,7 +1051,7 @@ def run_for_k(k: int, max_chunks: int = 16):
 
 # %%
 
-fit_start = 2
+fit_start = 4
 
 if expected_sub is not None:
     perfs_by_k = [run_for_k(k, max_chunks=max(min(256, total_n) // k, 1)) for k in ks]
